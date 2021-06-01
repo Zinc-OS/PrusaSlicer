@@ -4203,6 +4203,19 @@ bool GLCanvas3D::_init_main_toolbar()
         m_main_toolbar.set_enabled(false);
         return true;
     }
+    // init arrow
+    BackgroundTexture::Metadata arrow_data;
+    arrow_data.filename = "toolbar_arrow.png";
+    arrow_data.left = 16;
+    arrow_data.top = 16;
+    arrow_data.right = 16;
+    arrow_data.bottom = 16;
+
+    if (!m_main_toolbar.init_arrow(arrow_data))
+    {
+        BOOST_LOG_TRIVIAL(error) << "Main toolbar failed to load arrow texture.";
+    }
+
 
 //    m_main_toolbar.set_layout_type(GLToolbar::Layout::Vertical);
     m_main_toolbar.set_layout_type(GLToolbar::Layout::Horizontal);
@@ -5067,6 +5080,11 @@ void GLCanvas3D::_render_main_toolbar() const
     GLToolbar* main_toolbar = const_cast<GLToolbar*>(&m_main_toolbar);
     main_toolbar->set_position(top, left);
     main_toolbar->render(*this);
+
+    if (m_toolbar_highlighter.m_render_arrow)
+    {
+        main_toolbar->render_arrow(*this, m_toolbar_highlighter.m_toolbar_item);
+    }
 }
 
 void GLCanvas3D::_render_undoredo_toolbar() const
@@ -6300,6 +6318,7 @@ void GLCanvas3D::ToolbarHighlighter::invalidate()
     }
     m_toolbar_item = nullptr;
     m_blink_counter = 0;
+    m_render_arrow = false;
 }
 
 void GLCanvas3D::ToolbarHighlighter::blink()
@@ -6312,7 +6331,8 @@ void GLCanvas3D::ToolbarHighlighter::blink()
             m_toolbar_item->set_state(GLToolbarItem::EState::HighlightedShown);
         else 
             m_toolbar_item->set_state(GLToolbarItem::EState::HighlightedHidden);
-        
+
+        m_render_arrow = !m_render_arrow;
         m_canvas->set_as_dirty();
     }
     else
