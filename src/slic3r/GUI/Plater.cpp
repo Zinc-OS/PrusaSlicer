@@ -5340,8 +5340,11 @@ void Plater::export_gcode(bool prefer_removable)
             GUI::file_wildcards((printer_technology() == ptFFF) ? FT_GCODE : FT_PNGZIP, default_output_file.extension().string()),
             wxFD_SAVE | wxFD_OVERWRITE_PROMPT
         );
-        if (dlg.ShowModal() == wxID_OK)
+        if (dlg.ShowModal() == wxID_OK) {
+            std::cout << "dialog confirmed: '" << dlg.GetPath().ToString() << "'" << std::endl;
             output_path = into_path(dlg.GetPath());
+            std::cout << "output_path = " << output_path << std::endl;
+        }
     }
 
     if (! output_path.empty()) {

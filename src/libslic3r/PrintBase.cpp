@@ -52,6 +52,7 @@ void PrintBase::update_object_placeholders(DynamicConfig &config, const std::str
 // (timestamps, object placeholders derived from the model, current placeholder prameters, print statistics - config_override)
 std::string PrintBase::output_filename(const std::string &format, const std::string &default_ext, const std::string &filename_base, const DynamicConfig *config_override) const
 {
+    std::cout << "PrintBase::output_filename starts" << std::endl;
     DynamicConfig cfg;
     if (config_override != nullptr)
     	cfg = *config_override;
@@ -67,6 +68,8 @@ std::string PrintBase::output_filename(const std::string &format, const std::str
 			this->placeholder_parser().process(format, 0, &cfg);
         if (filename.extension().empty())
             filename = boost::filesystem::change_extension(filename, default_ext);
+
+        std::cout << "PrintBase::output_filename returns: '" << filename.string() << "'" << std::endl;
         return filename.string();
     } catch (std::runtime_error &err) {
         throw Slic3r::PlaceholderParserError(L("Failed processing of the output_filename_format template.") + "\n" + err.what());
