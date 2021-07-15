@@ -121,10 +121,14 @@ bool load_obj(const char *path, TriangleMesh *meshptr)
             if (len > EPSILON)
                 facet.normal = normal / len;
         }
+        //should work
+        uvData.uvs.emplace_back(uv[0]);
+        uvData.uvs.emplace_back(uv[1]);
+        uvData.uvs.emplace_back(uv[2]);
     }
-    uvData.uvs.push_back(uv);
+   
     //load mtl data
-    ObjParser::parseMTL(path, &mtl, data);
+    ObjParser::parseMTL(path, mtl, data);
     
 
     stl_get_size(&stl);

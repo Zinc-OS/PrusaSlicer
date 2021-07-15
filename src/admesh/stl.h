@@ -59,7 +59,7 @@ struct uv_data{
 	size_t memsize() const {
 		return sizeof(*this)+sizeof(stl_uv)*uvs.size();
 	}
-}
+};
 
 struct stl_facet {
 	stl_normal normal;
