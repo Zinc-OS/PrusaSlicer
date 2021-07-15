@@ -9,7 +9,164 @@
 #include "libslic3r/LocalesUtils.hpp"
 
 namespace ObjParser {
+bool parseMTL(const char* path, stl_file &stl, ObjData data){
+	char mtl_names[12][64];int mtl_diffuse[12][3];
+	#define EATWS() while (*c == ' ' || *c == '\t') ++ c
+	int n_mtl_idx=0;
+        for(int i=0;i<sizeof(data.mtllibs[0])/sizeof(data.mtllibs);i++){
+            //load mtl data
+            //extract mtl path
+            int last_idx;
+			const char* slash="/";// "/" is two chars
+            for(int is=0;is<sizeof(path)/2;is+=2){
+                if((*path++)==slash[0]&&(*path++)==slash[1]){
+                    last_idx=is;
+                }
+                
+            }
+            char htap[last_idx+64];
+            for(int is=0;is<last_idx+1;is++){
+                htap[is]=(path)[is];
+            }
+            for(int is=last_idx;is<last_idx+sizeof(data.mtllibs[i]);is++){
+                htap[is]=data.mtllibs[i][is-last_idx];
+            }
+            //
+            FILE *mtl_file = boost::nowide::fopen(htap,"rt");
+            if(mtl_file!=0){
+                
+				int num_mtls=0;
+				char mtl_buf[65536 * 2];
+				size_t mtl_len = 0;
+				size_t mtl_len_bef = 0;
+				while ((mtl_len = ::fread(mtl_buf + mtl_len_bef, 1, 65536, mtl_file)) != 0) {
+					mtl_len += mtl_len_bef;
+					size_t lastLine = 0;
+					for (size_t i = 0; i < mtl_len; ++ i)
+						if (mtl_buf[i] == '\r' || mtl_buf[i] == '\n') {
+							mtl_buf[i] = 0;
+							char *c = mtl_buf + lastLine;
+							while (*c == ' ' || *c == '\t')
+								++ c;
+							//if (*line == 0)
+								//return true;
 
+							assert(Slic3r::is_decimal_separator_point());
+
+							EATWS();
+							char c1 = *c ++;
+							switch (c1) {
+								case '#':
+									//Comment
+									break;
+								case 'N':
+									//Something
+									break;
+									
+								case 'K':
+									{
+										if (*(c ++) != 'e')
+											return false;
+										//diffuse value, will capture in case there isnt png data, so it doesn't break
+										//LATER MOVING ON
+										EATWS();
+										char *endptr = 0;
+										double r = strtod(c, &endptr);
+										if (endptr == 0 || (*endptr != ' ' && *endptr != '\t'))
+											return false;
+										c = endptr;
+										EATWS();
+										double g = strtod(c, &endptr);
+										if (endptr == 0 || (*endptr != ' ' && *endptr != '\t'))
+											return false;
+										c = endptr;
+										EATWS();
+										double b = strtod(c, &endptr);
+										if (endptr == 0 || (*endptr != ' ' && *endptr != '\t' && *endptr != 0))
+											return false;
+										c = endptr;
+										EATWS();
+										if (*c != 0) {
+											double a = strtod(c, &endptr);
+											if (endptr == 0 || (*endptr != ' ' && *endptr != '\t' && *endptr != 0))
+												return false;
+											c = endptr;
+											EATWS();
+										}
+										mtl_diffuse[num_mtls][0]=r;
+										mtl_diffuse[num_mtls][1]=g;
+										mtl_diffuse[num_mtls][2]=b;
+									}
+									break;
+									
+								case 'x':
+									break;
+									
+								case 'n':
+									//newmtl
+									if (*(c ++) != 'e' ||
+										*(c ++) != 'w' ||
+										*(c ++) != 'm' ||
+										*(c ++) != 't' ||
+										*(c ++) != 'l'){
+											return false;
+										}
+									for(int ix=0;ix<sizeof(std::string(c)[0])/sizeof(std::string(c));ix++){
+										mtl_names[num_mtls][ix]=std::string(c)[ix];
+									}
+									num_mtls++;
+									break;
+									                   
+								case 'd':
+									//diffuse percentage
+									break;
+									
+								case 'm':
+									if (*(c ++) != 'a' ||
+										*(c ++) != 'p' ||
+										*(c ++) != '_' ||
+										*(c ++) != 'K' ||
+										*(c ++) != 'd')
+										return false;
+										//not diffuse color
+									
+									//some png
+									for(int ix=0;ix<sizeof(std::string(c)[0])/sizeof(std::string(c));ix++){
+										stl.mtl_data.png[num_mtls][ix]=std::string(c)[ix];
+									}
+									break;
+									
+									
+							}
+
+
+							lastLine = i + 1;
+						}
+					mtl_len_bef = mtl_len - lastLine;
+					if (mtl_len_bef > 65536) {
+						BOOST_LOG_TRIVIAL(error) << "ObjParser: Excessive line length";
+						::fclose(mtl_file);
+						return false;
+					}
+					memmove(mtl_buf, mtl_buf + lastLine, mtl_len_bef);
+				}
+				}
+
+            
+        }
+	for(int imp=0;imp<sizeof(data.usemtls[0])/sizeof(data.usemtls);imp++){
+            for(int imps=0;imps<12;imps++){
+                if(data.usemtls[imp].name==mtl_names[imps]){
+                    stl.mtl_data.idx[n_mtl_idx]=data.usemtls[imp].vertexIdxFirst;
+                    stl.mtl_data.mtl_idx[n_mtl_idx]=imps;//the index. no unneeded strings will be added to stl_file
+                    n_mtl_idx++;
+                }
+            }
+            
+
+        }
+		return true;
+}
 static bool obj_parseline(const char *line, ObjData &data)
 {
 #define EATWS() while (*line == ' ' || *line == '\t') ++ line
