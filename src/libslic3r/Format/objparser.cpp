@@ -9,7 +9,7 @@
 #include "libslic3r/LocalesUtils.hpp"
 
 namespace ObjParser {
-bool parseMTL(const char* path, stl_file &stl, ObjData data){
+bool parseMTL(const char* path, mtl_file &mtl, ObjData data){
 	char mtl_names[12][64];int mtl_diffuse[12][3];
 	#define EATWS() while (*c == ' ' || *c == '\t') ++ c
 	int n_mtl_idx=0;
@@ -68,7 +68,7 @@ bool parseMTL(const char* path, stl_file &stl, ObjData data){
 										if (*(c ++) != 'e')
 											return false;
 										//diffuse value, will capture in case there isnt png data, so it doesn't break
-										//LATER MOVING ON
+										
 										EATWS();
 										char *endptr = 0;
 										double r = strtod(c, &endptr);
@@ -132,7 +132,7 @@ bool parseMTL(const char* path, stl_file &stl, ObjData data){
 									
 									//some png
 									for(int ix=0;ix<sizeof(std::string(c)[0])/sizeof(std::string(c));ix++){
-										stl.mtl_data.png[num_mtls][ix]=std::string(c)[ix];
+										mtl.png[num_mtls][ix]=std::string(c)[ix];
 									}
 									break;
 									
@@ -157,8 +157,8 @@ bool parseMTL(const char* path, stl_file &stl, ObjData data){
 	for(int imp=0;imp<sizeof(data.usemtls[0])/sizeof(data.usemtls);imp++){
             for(int imps=0;imps<12;imps++){
                 if(data.usemtls[imp].name==mtl_names[imps]){
-                    stl.mtl_data.idx[n_mtl_idx]=data.usemtls[imp].vertexIdxFirst;
-                    stl.mtl_data.mtl_idx[n_mtl_idx]=imps;//the index. no unneeded strings will be added to stl_file
+                    mtl.idx[n_mtl_idx]=data.usemtls[imp].vertexIdxFirst;
+                    mtl.mtl_idx[n_mtl_idx]=imps;//the index. no unneeded strings will be added to stl_file
                     n_mtl_idx++;
                 }
             }

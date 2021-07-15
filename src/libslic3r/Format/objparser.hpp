@@ -96,7 +96,7 @@ struct ObjData {
 	// List of faces, delimited by an ObjVertex with all members set to -1.
 	std::vector<ObjVertex>			vertices;
 };
-extern bool parseMTL(const char* path,stl_file &stl,ObjData data);
+extern bool parseMTL(const char* path,mtl_file &mtl,ObjData data);
 
 extern bool objparse(const char *path, ObjData &data);
 extern bool objparse(std::istream &stream, ObjData &data);
