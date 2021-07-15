@@ -2,12 +2,14 @@
 #include "../Model.hpp"
 #include "../TriangleMesh.hpp"
 
+
 #include "OBJ.hpp"
 #include "objparser.hpp"
 
-#include <string>
 
+#include <string>
 #include <boost/log/trivial.hpp>
+
 
 #ifdef _WIN32
 #define DIR_SEPARATOR '\\'
@@ -50,6 +52,9 @@ bool load_obj(const char *path, TriangleMesh *meshptr)
     // Convert ObjData into STL.
     TriangleMesh &mesh = *meshptr;
     stl_file &stl = mesh.stl;
+    uv_data uvData;
+    mtl_file mtl;
+    //indexed_triangle_set &its = mesh.its;
     stl.stats.type = inmemory;
     stl.stats.number_of_facets = uint32_t(num_faces + num_quads);
     stl.stats.original_num_facets = int(num_faces + num_quads);
@@ -62,6 +67,9 @@ bool load_obj(const char *path, TriangleMesh *meshptr)
         stl_facet &facet = stl.facet_start[i_face ++];
         size_t     num_normals = 0;
         stl_normal normal(stl_normal::Zero());
+        size_t     num_uvs = 0;
+        stl_uv uv[3];
+        
         for (unsigned int v = 0; v < 3; ++ v) {
             const ObjParser::ObjVertex &vertex = data.vertices[i++];
             memcpy(facet.vertex[v].data(), &data.coordinates[vertex.coordIdx*4], 3 * sizeof(float));
@@ -71,13 +79,22 @@ bool load_obj(const char *path, TriangleMesh *meshptr)
                 normal(2) += data.normals[vertex.normalIdx*3+2];
                 ++ num_normals;
             }
+            if (vertex.textureCoordIdx != -1) {
+                uv[v][0] += data.textureCoordinates[vertex.textureCoordIdx*3];
+                uv[v][1] += data.textureCoordinates[vertex.textureCoordIdx*3+1];
+                uv[v][2] += data.textureCoordinates[vertex.textureCoordIdx*3+2];
+                ++ num_uvs;
+            }
+            
         }
+        
         // Result of obj_parseline() call is not checked, thus not all vertices are necessarily finalized with coord_Idx == -1.
         if (i < data.vertices.size() && data.vertices[i].coordIdx != -1) {
             // This is a quad. Produce the other triangle.
             stl_facet &facet2 = stl.facet_start[i_face++];
             facet2.vertex[0] = facet.vertex[0];
             facet2.vertex[1] = facet.vertex[2];
+            
             const ObjParser::ObjVertex &vertex = data.vertices[i++];
             memcpy(facet2.vertex[2].data(), &data.coordinates[vertex.coordIdx * 4], 3 * sizeof(float));
             if (vertex.normalIdx != -1) {
@@ -93,15 +110,23 @@ bool load_obj(const char *path, TriangleMesh *meshptr)
                     normal /= len;
                     facet.normal = normal;
                     facet2.normal = normal;
+                    
                 }
             }
+            
         } else if (num_normals == 3) {
+            
             // Normalize an average normal of a triangle.
             float len = facet.normal.norm();
             if (len > EPSILON)
                 facet.normal = normal / len;
         }
     }
+    uvData.uvs.push_back(uv);
+    //load mtl data
+    ObjParser::parseMTL(path, &mtl, data);
+    
+
     stl_get_size(&stl);
     mesh.repair();
     if (mesh.facets_count() == 0) {

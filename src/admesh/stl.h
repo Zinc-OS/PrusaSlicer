@@ -40,7 +40,8 @@
 #define ASCII_LINES_PER_FACET  7
 
 typedef Eigen::Matrix<float, 3, 1, Eigen::DontAlign> stl_vertex;
-typedef Eigen::Matrix<float, 3, 1, Eigen::DontAlign> stl_normal;
+typedef Eigen::Matrix<float, 3, 1, Eigen::DontAlign> stl_normal;\
+typedef Eigen::Matrix<float, 3, 1, Eigen::DontAlign> stl_uv;
 typedef Eigen::Matrix<int,   3, 1, Eigen::DontAlign> stl_triangle_vertex_indices;
 static_assert(sizeof(stl_vertex) == 12, "size of stl_vertex incorrect");
 static_assert(sizeof(stl_normal) == 12, "size of stl_normal incorrect");
@@ -53,6 +54,12 @@ struct mtl_file{
 	//it will only take up a meagre amount of memory.
 
 };
+struct uv_data{
+	std::vector<stl_uv> uvs;
+	size_t memsize() const {
+		return sizeof(*this)+sizeof(stl_uv)*uvs.size();
+	}
+}
 
 struct stl_facet {
 	stl_normal normal;
