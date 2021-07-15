@@ -44,6 +44,15 @@ typedef Eigen::Matrix<float, 3, 1, Eigen::DontAlign> stl_normal;
 typedef Eigen::Matrix<int,   3, 1, Eigen::DontAlign> stl_triangle_vertex_indices;
 static_assert(sizeof(stl_vertex) == 12, "size of stl_vertex incorrect");
 static_assert(sizeof(stl_normal) == 12, "size of stl_normal incorrect");
+//defining here so its everywhere just in case
+struct mtl_file{
+	
+	int idx[64];//starting face of the material
+	int mtl_idx[64];//materials will be treated as indices(which png) instead of char strings
+	char png [12][64];//up to 12 images, with a max length of 64 characters each
+	//it will only take up a meagre amount of memory.
+
+};
 
 struct stl_facet {
 	stl_normal normal;
