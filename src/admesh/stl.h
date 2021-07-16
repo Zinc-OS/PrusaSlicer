@@ -40,7 +40,7 @@
 #define ASCII_LINES_PER_FACET  7
 
 typedef Eigen::Matrix<float, 3, 1, Eigen::DontAlign> stl_vertex;
-typedef Eigen::Matrix<float, 3, 1, Eigen::DontAlign> stl_normal;\
+typedef Eigen::Matrix<float, 3, 1, Eigen::DontAlign> stl_normal;
 typedef Eigen::Matrix<float, 3, 1, Eigen::DontAlign> stl_uv;
 typedef Eigen::Matrix<int,   3, 1, Eigen::DontAlign> stl_triangle_vertex_indices;
 static_assert(sizeof(stl_vertex) == 12, "size of stl_vertex incorrect");
