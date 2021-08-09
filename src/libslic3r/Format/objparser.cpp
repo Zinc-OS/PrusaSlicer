@@ -10,51 +10,77 @@
 
 namespace ObjParser {
 bool parseMTL(const char* path, mtl_file &mtl, ObjData data){
+#define EATWS1() while (*c == ' ' || *c == '\t') ++ c
 	char mtl_names[12][64];int mtl_diffuse[12][3];
-	#define EATWS() while (*c == ' ' || *c == '\t') ++ c
+	
 	int n_mtl_idx=0;
-        for(int i=0;i<sizeof(data.mtllibs[0])/sizeof(data.mtllibs);i++){
+        for(u_int i=0;i<sizeof(data.mtllibs[0])/sizeof(data.mtllibs);i++){
             //load mtl data
             //extract mtl path
-            int last_idx;
-			const char* slash="/";// "/" is two chars
-            for(int is=0;is<sizeof(path)/2;is+=2){
-                if((*path++)==slash[0]&&(*path++)==slash[1]){
+            int last_idx=-1;
+			char slash[2]="/";// "/" is two chars
+			
+            for(u_int is=0;is<sizeof(path)*4;is++){
+                if(path[is]==*slash){
                     last_idx=is;
+					
                 }
+				else if(path[is]==*slash){
+                    last_idx=is-1;
+					
+                }//else{
+					//printf("%c",path[is]);
+				//}
+				
                 
             }
+
+			
+			//printf("start: %d\n",last_idx);
             char htap[last_idx+64];
             for(int is=0;is<last_idx+1;is++){
-                htap[is]=(path)[is];
+                htap[is]=path[is];
             }
-            for(int is=last_idx;is<last_idx+sizeof(data.mtllibs[i]);is++){
-                htap[is]=data.mtllibs[i][is-last_idx];
+			char dir[last_idx+64];
+			for(int is=0;is<last_idx+1;is++){
+				dir[is]=htap[is];
             }
-            //
+			htap[++last_idx]=*slash;
+			
+            for(u_int is;is<sizeof(data.mtllibs[i]);is++){
+                htap[is+last_idx]=data.mtllibs[i][is];
+            }
+            //DEBUG
+			printf("htap: %s\n",htap);
+			printf("path: %s\n",path);
             FILE *mtl_file = boost::nowide::fopen(htap,"rt");
             if(mtl_file!=0){
                 
 				int num_mtls=0;
 				char mtl_buf[65536 * 2];
 				size_t mtl_len = 0;
-				size_t mtl_len_bef = 0;
-				while ((mtl_len = ::fread(mtl_buf + mtl_len_bef, 1, 65536, mtl_file)) != 0) {
-					mtl_len += mtl_len_bef;
+				size_t lenPrev = 0;
+				while ((mtl_len = ::fread(mtl_buf + lenPrev, 1, 65536, mtl_file)) != 0) {
+					mtl_len += lenPrev;
 					size_t lastLine = 0;
-					for (size_t i = 0; i < mtl_len; ++ i)
+					//printf(mtl_buf);
+					for (size_t i = 0; i < mtl_len; ++ i){
+						
 						if (mtl_buf[i] == '\r' || mtl_buf[i] == '\n') {
+							//printf("%ld\n",i);
 							mtl_buf[i] = 0;
 							char *c = mtl_buf + lastLine;
 							while (*c == ' ' || *c == '\t')
 								++ c;
-							//if (*line == 0)
-								//return true;
+							char c1 = *c ++;
+							//printf("c1: %c %d, c: %s, mtl_buf[i]: %d.\n",c1,c1,c,mtl_buf[i]);
+							if (*c == 0)
+								return true;
 
 							assert(Slic3r::is_decimal_separator_point());
 
-							EATWS();
-							char c1 = *c ++;
+							EATWS1();
+							
 							switch (c1) {
 								case '#':
 									//Comment
@@ -65,33 +91,33 @@ bool parseMTL(const char* path, mtl_file &mtl, ObjData data){
 									
 								case 'K':
 									{
-										if (*(c ++) != 'e')
-											return false;
+										if (*(c ++) != 'd')
+											break;
 										//diffuse value, will capture in case there isnt png data, so it doesn't break
 										
-										EATWS();
+										EATWS1();
 										char *endptr = 0;
 										double r = strtod(c, &endptr);
 										if (endptr == 0 || (*endptr != ' ' && *endptr != '\t'))
 											return false;
 										c = endptr;
-										EATWS();
+										EATWS1();
 										double g = strtod(c, &endptr);
 										if (endptr == 0 || (*endptr != ' ' && *endptr != '\t'))
 											return false;
 										c = endptr;
-										EATWS();
+										EATWS1();
 										double b = strtod(c, &endptr);
 										if (endptr == 0 || (*endptr != ' ' && *endptr != '\t' && *endptr != 0))
 											return false;
 										c = endptr;
-										EATWS();
+										EATWS1();
 										if (*c != 0) {
 											double a = strtod(c, &endptr);
 											if (endptr == 0 || (*endptr != ' ' && *endptr != '\t' && *endptr != 0))
 												return false;
 											c = endptr;
-											EATWS();
+											EATWS1();
 										}
 										mtl_diffuse[num_mtls][0]=r;
 										mtl_diffuse[num_mtls][1]=g;
@@ -111,7 +137,7 @@ bool parseMTL(const char* path, mtl_file &mtl, ObjData data){
 										*(c ++) != 'l'){
 											return false;
 										}
-									for(int ix=0;ix<sizeof(std::string(c)[0])/sizeof(std::string(c));ix++){
+									for(u_int ix=0;ix<sizeof(std::string(c)[0])/sizeof(std::string(c));ix++){
 										mtl_names[num_mtls][ix]=std::string(c)[ix];
 									}
 									num_mtls++;
@@ -122,39 +148,55 @@ bool parseMTL(const char* path, mtl_file &mtl, ObjData data){
 									break;
 									
 								case 'm':
-									if (*(c ++) != 'a' ||
-										*(c ++) != 'p' ||
-										*(c ++) != '_' ||
-										*(c ++) != 'K' ||
-										*(c ++) != 'd')
-										return false;
-										//not diffuse color
-									
-									//some png
-									for(int ix=0;ix<sizeof(std::string(c)[0])/sizeof(std::string(c));ix++){
-										mtl.png[num_mtls][ix]=std::string(c)[ix];
+									if (*(c ++) == 'a' &&
+										*(c ++) == 'p' &&
+										*(c ++) == '_' &&
+										*(c ++) == 'K' &&
+										*(c ++) == 'd' &&
+										*(c ++) == ' '){
+										printf("%s\n",dir);
+										printf("%s\n",c);
+										u_int ix=0;
+										while(ix<sizeof(dir)){
+											mtl.png[num_mtls][ix]=dir[ix++];
+											printf("%c",dir[ix]);
+										}
+										u_int is;
+										while(is<sizeof(c)){
+											mtl.png[num_mtls][ix++]=c[is++];
+										}
+										
 									}
 									break;
 									
+								default:
+									break;
+								
+									
 									
 							}
-
+							
 
 							lastLine = i + 1;
+							
 						}
-					mtl_len_bef = mtl_len - lastLine;
-					if (mtl_len_bef > 65536) {
+						
+					}
+					lenPrev = mtl_len - lastLine;
+					if (lenPrev > 65536) {
 						BOOST_LOG_TRIVIAL(error) << "ObjParser: Excessive line length";
-						::fclose(mtl_file);
+						fclose(mtl_file);
+						printf("error");
 						return false;
 					}
-					memmove(mtl_buf, mtl_buf + lastLine, mtl_len_bef);
+					printf("\n\n\n\n");
+					memmove(mtl_buf, mtl_buf + lastLine, lenPrev);
 				}
 				}
 
             
         }
-	for(int imp=0;imp<sizeof(data.usemtls[0])/sizeof(data.usemtls);imp++){
+	for(u_int imp=0;imp<sizeof(data.usemtls[0])/sizeof(data.usemtls);imp++){
             for(int imps=0;imps<12;imps++){
                 if(data.usemtls[imp].name==mtl_names[imps]){
                     mtl.idx[n_mtl_idx]=data.usemtls[imp].vertexIdxFirst;

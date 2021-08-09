@@ -155,10 +155,10 @@ bool mtl_readPNG(char* path, png_structp png_ptr, png_infop info_ptr){
     
     png_init_io(png_ptr, f);
     png_set_sig_bytes(png_ptr, number);
-    png_set_compression_buffer_size(png_ptr, 4096*2);
+    png_set_compression_buffer_size(png_ptr, 8192);
     png_read_png(png_ptr, info_ptr, 0, NULL);
     
-    png_infop end_info = png_create_info_struct(png_ptr);
+    //png_infop end_info = png_create_info_struct(png_ptr);
     //png_read_end(png_ptr,end_info);
     fclose(f);
     return true;
@@ -378,22 +378,36 @@ bool load_obj(const char *path, TriangleMesh *meshptr, Model *model,const char *
         png_infop info_ptr;
         //select image;
         for(int i2=0;i2<64;++i2){
-            if(i>mtl.idx[i2]){
+            if(i>mtl.idx[i2]&&mtl.idx[i2]>-1){
                 x1=i2;
+                printf("check\n");
             }
         }
+        for(int p=0;p<12;p++){
+            printf("%s\n",mtl.png[p]);
+        }
+        if(!x1){
+            printf("no png");
+        }
         int i2=x1;
+        printf("%d\n",i2);
+        printf("success\n");
+        if(i2<64){
+            printf("%s\n",mtl.png[mtl.mtl_idx[i2]]);
+        }
+
         mtl_readPNG(mtl.png[mtl.mtl_idx[i2]],png_ptr,info_ptr);
+        printf("check1");
         png_bytepp rows = png_get_rows(png_ptr,info_ptr);
         png_uint_32 width = png_get_image_width(png_ptr,info_ptr);
         png_uint_32 height = png_get_image_height(png_ptr,info_ptr);
-        png_byte channels = png_get_channels(png_ptr,info_ptr);
+        //png_byte channels = png_get_channels(png_ptr,info_ptr);
         png_set_palette_to_rgb(png_ptr);
-        
+        printf("check2");
         //map uvs
-        int uv1[2] = {uvData.uvs[i*3][0]*width,uvData.uvs[i*3][1]*height};
-        int uv2[2] = {uvData.uvs[i*3+1][0]*width,uvData.uvs[i*3+1][1]*height};
-        int uv3[2] = {uvData.uvs[i*3+2][0]*width,uvData.uvs[i*3+2][1]*height};
+        int uv1[2] = {int(uvData.uvs[i*3][0])*int(width),int(uvData.uvs[i*3][1])*int(height)};
+        int uv2[2] = {int(uvData.uvs[i*3+1][0])*int(width),int(uvData.uvs[i*3+1][1])*int(height)};
+        int uv3[2] = {int(uvData.uvs[i*3+2][0])*int(width),int(uvData.uvs[i*3+2][1])*int(height)};
         float slp1=(uv1[1]-uv2[1])/(uv1[0]-uv2[0]);
         float slp2=(uv2[1]-uv3[1])/(uv2[0]-uv3[0]);
         float slp3=(uv1[1]-uv3[1])/(uv1[0]-uv3[0]);
@@ -596,10 +610,10 @@ bool load_obj(const char *path, Model *model, const char *object_name_in)
     TriangleMesh mesh;
     bool ret = load_obj(path, &mesh, model,object_name_in);
     
-    if (ret) {
+    //if (ret) {
         
         
-    }
+    //}
     
     return ret;
 }
