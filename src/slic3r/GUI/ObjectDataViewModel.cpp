@@ -65,6 +65,7 @@ ObjectDataViewModelNode::ObjectDataViewModelNode(ObjectDataViewModelNode* parent
     m_name           = info_type == InfoItemType::CustomSupports  ? _L("Paint-on supports") :
                        info_type == InfoItemType::CustomSeam      ? _L("Paint-on seam") :
                        info_type == InfoItemType::MmuSegmentation ? _L("Paint-on segmentation") :
+                       info_type == InfoItemType::Sinking         ? _L("Sinking") :
                                                                     _L("Variable layer height");
     m_info_item_type = info_type;
 }
@@ -1493,7 +1494,17 @@ void ObjectDataViewModel::GetAllChildren(const wxDataViewItem &parent, wxDataVie
     }
 }
 
-ItemType ObjectDataViewModel::GetItemType(const wxDataViewItem &item) const 
+bool ObjectDataViewModel::HasInfoItem(InfoItemType type) const
+{
+    for (ObjectDataViewModelNode* obj_node : m_objects)
+        for (size_t j = 0; j < obj_node->GetChildCount(); j++)
+            if (obj_node->GetNthChild(j)->GetInfoItemType() == type)
+                return true;
+
+    return false;
+}
+
+ItemType ObjectDataViewModel::GetItemType(const wxDataViewItem &item) const
 {
     if (!item.IsOk())
         return itUndef;
@@ -1694,6 +1705,24 @@ wxBitmap ObjectDataViewModel::GetVolumeIcon(const Slic3r::ModelVolumeType vol_ty
     }
 
     return *bmp;
+}
+
+void ObjectDataViewModel::AddWarningIcon(const wxDataViewItem& item)
+{
+    if (!item.IsOk())
+        return;
+    ObjectDataViewModelNode *node = static_cast<ObjectDataViewModelNode*>(item.GetID());
+
+    if (node->GetType() & itObject) {
+        node->SetBitmap(m_warning_bmp);
+        return;
+    }
+
+    if (node->GetType() & itVolume) {
+        node->SetBitmap(GetVolumeIcon(node->GetVolumeType(), true));
+        node->GetParent()->SetBitmap(m_warning_bmp);
+        return;
+    }
 }
 
 void ObjectDataViewModel::DeleteWarningIcon(const wxDataViewItem& item, const bool unmark_object/* = false*/)

@@ -2,6 +2,7 @@
 #include "wxExtensions.hpp"
 #include "GUI.hpp"
 #include "I18N.hpp"
+#include "BitmapComboBox.hpp"
 
 #include <wx/dc.h>
 #ifdef wxHAS_GENERIC_DATAVIEWCTRL
@@ -296,7 +297,11 @@ wxWindow* BitmapChoiceRenderer::CreateEditorCtrl(wxWindow* parent, wxRect labelR
     DataViewBitmapText data;
     data << value;
 
+#ifdef _WIN32
+    Slic3r::GUI::BitmapComboBox* c_editor = new Slic3r::GUI::BitmapComboBox(parent, wxID_ANY, wxEmptyString,
+#else
     auto c_editor = new wxBitmapComboBox(parent, wxID_ANY, wxEmptyString,
+#endif
         labelRect.GetTopLeft(), wxSize(labelRect.GetWidth(), -1), 
         0, nullptr , wxCB_READONLY);
 
@@ -332,6 +337,39 @@ bool BitmapChoiceRenderer::GetValueFromEditorCtrl(wxWindow* ctrl, wxVariant& val
 
     value << bmpText;
     return true;
+}
+
+
+// ----------------------------------------------------------------------------
+// TextRenderer
+// ----------------------------------------------------------------------------
+
+bool TextRenderer::SetValue(const wxVariant& value)
+{
+    m_value = value.GetString();
+    return true;
+}
+
+bool TextRenderer::GetValue(wxVariant& value) const
+{
+    return false;
+}
+
+bool TextRenderer::Render(wxRect rect, wxDC* dc, int state)
+{
+#ifdef _WIN32
+    // workaround for Windows DarkMode : Don't respect to the state & wxDATAVIEW_CELL_SELECTED to avoid update of the text color
+    RenderText(m_value, 0, rect, dc, state & wxDATAVIEW_CELL_SELECTED ? 0 : state);
+#else
+    RenderText(m_value, 0, rect, dc, state);
+#endif
+
+    return true;
+}
+
+wxSize TextRenderer::GetSize() const
+{
+    return GetTextExtent(m_value);
 }
 
 

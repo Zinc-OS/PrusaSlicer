@@ -317,6 +317,12 @@ void PrintConfigDef::init_common_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionStrings());
 
+    // temporary workaround for compatibility with older Slicer
+    {
+        def = this->add("preset_name", coString);
+        def->set_default_value(new ConfigOptionString());
+    }
+
     def = this->add("printhost_authorization_type", coEnum);
     def->label = L("Authorization Type");
 //    def->tooltip = L("");
@@ -1273,7 +1279,7 @@ void PrintConfigDef::init_fff_params()
     def->enum_labels.push_back("Teacup");
     def->enum_labels.push_back("MakerWare (MakerBot)");
     def->enum_labels.push_back("Marlin (legacy)");
-    def->enum_labels.push_back("Marlin Firmware");
+    def->enum_labels.push_back("Marlin 2");
     def->enum_labels.push_back("Sailfish (MakerBot)");
     def->enum_labels.push_back("Mach3/LinuxCNC");
     def->enum_labels.push_back("Machinekit");
@@ -1451,6 +1457,7 @@ void PrintConfigDef::init_fff_params()
     def->tooltip = L("Maximum width of a segmented region. Zero disables this feature.");
     def->sidetext = L("mm (zero to disable)");
     def->min = 0;
+    def->category = L("Advanced");
     def->mode = comExpert;
     def->set_default_value(new ConfigOptionFloat(0.f));
 
@@ -4146,6 +4153,11 @@ CLITransformConfigDef::CLITransformConfigDef()
     def = this->add("dont_arrange", coBool);
     def->label = L("Don't arrange");
     def->tooltip = L("Do not rearrange the given models before merging and keep their original XY coordinates.");
+
+    def = this->add("ensure_on_bed", coBool);
+    def->label = L("Ensure on bed");
+    def->tooltip = L("Lift the object above the bed when it is partially below. Enabled by default, use --no-ensure-on-bed to disable.");
+    def->set_default_value(new ConfigOptionBool(true));
 
     def = this->add("duplicate", coInt);
     def->label = L("Duplicate");

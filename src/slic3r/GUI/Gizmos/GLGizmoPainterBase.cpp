@@ -31,7 +31,6 @@ GLGizmoPainterBase::GLGizmoPainterBase(GLCanvas3D& parent, const std::string& ic
 
 
 
-#if ENABLE_PROJECT_DIRTY_STATE
 // port of 948bc382655993721d93d3b9fce9b0186fcfb211
 void GLGizmoPainterBase::activate_internal_undo_redo_stack(bool activate)
 {
@@ -66,29 +65,6 @@ void GLGizmoPainterBase::activate_internal_undo_redo_stack(bool activate)
         m_internal_stack_active = false;
     }
 }
-#else
-void GLGizmoPainterBase::activate_internal_undo_redo_stack(bool activate)
-{
-    if (activate && ! m_internal_stack_active) {
-        wxString str = get_painter_type() == PainterGizmoType::FDM_SUPPORTS
-                           ? _L("Entering Paint-on supports")
-                           : (get_painter_type() == PainterGizmoType::MMU_SEGMENTATION ? _L("Entering MMU segmentation") : _L("Entering Seam painting"));
-        Plater::TakeSnapshot(wxGetApp().plater(), str);
-        wxGetApp().plater()->enter_gizmos_stack();
-        m_internal_stack_active = true;
-    }
-    if (! activate && m_internal_stack_active) {
-        wxString str = get_painter_type() == PainterGizmoType::SEAM
-                           ? _L("Leaving Seam painting")
-                           : (get_painter_type() == PainterGizmoType::MMU_SEGMENTATION ? _L("Leaving MMU segmentation") : _L("Leaving Paint-on supports"));
-        wxGetApp().plater()->leave_gizmos_stack();
-        Plater::TakeSnapshot(wxGetApp().plater(), str);
-        m_internal_stack_active = false;
-    }
-}
-#endif // ENABLE_PROJECT_DIRTY_STATE
-
-
 
 void GLGizmoPainterBase::set_painter_gizmo_data(const Selection& selection)
 {
@@ -307,7 +283,7 @@ bool GLGizmoPainterBase::gizmo_event(SLAGizmoEventType action, const Vec2d& mous
             return true;
         }
         else if (alt_down) {
-            if (m_tool_type == ToolType::BRUSH) {
+            if (m_tool_type == ToolType::BRUSH && (m_cursor_type == TriangleSelector::CursorType::SPHERE || m_cursor_type == TriangleSelector::CursorType::CIRCLE)) {
                 m_cursor_radius = action == SLAGizmoEventType::MouseWheelDown ? std::max(m_cursor_radius - CursorRadiusStep, CursorRadiusMin)
                                                                               : std::min(m_cursor_radius + CursorRadiusStep, CursorRadiusMax);
                 m_parent.set_as_dirty();
@@ -316,6 +292,11 @@ bool GLGizmoPainterBase::gizmo_event(SLAGizmoEventType action, const Vec2d& mous
                 m_seed_fill_angle = action == SLAGizmoEventType::MouseWheelDown ? std::max(m_seed_fill_angle - SeedFillAngleStep, SeedFillAngleMin)
                                                                                 : std::min(m_seed_fill_angle + SeedFillAngleStep, SeedFillAngleMax);
                 m_parent.set_as_dirty();
+                if (m_rr.mesh_id != -1) {
+                    m_triangle_selectors[m_rr.mesh_id]->seed_fill_select_triangles(m_rr.hit, int(m_rr.facet), m_seed_fill_angle, true);
+                    m_triangle_selectors[m_rr.mesh_id]->request_update_render_data();
+                    m_seed_fill_last_mesh_id = m_rr.mesh_id;
+                }
                 return true;
             }
 
@@ -539,7 +520,7 @@ bool GLGizmoPainterBase::on_is_activable() const
     const Selection& selection = m_parent.get_selection();
 
     if (wxGetApp().preset_bundle->printers.get_edited_preset().printer_technology() != ptFFF
-        || !selection.is_single_full_instance())
+        || !selection.is_single_full_instance() || wxGetApp().get_mode() == comSimple)
         return false;
 
     // Check that none of the selected volumes is outside. Only SLA auxiliaries (supports) are allowed outside.

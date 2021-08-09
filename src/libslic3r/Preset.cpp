@@ -625,17 +625,13 @@ const std::vector<std::string>& Preset::sla_printer_options()
 PresetCollection::PresetCollection(Preset::Type type, const std::vector<std::string> &keys, const Slic3r::StaticPrintConfig &defaults, const std::string &default_name) :
     m_type(type),
     m_edited_preset(type, "", false),
-#if ENABLE_PROJECT_DIRTY_STATE
     m_saved_preset(type, "", false),
-#endif // ENABLE_PROJECT_DIRTY_STATE
     m_idx_selected(0)
 {
     // Insert just the default preset.
     this->add_default_preset(keys, defaults, default_name);
     m_edited_preset.config.apply(m_presets.front().config);
-#if ENABLE_PROJECT_DIRTY_STATE
     update_saved_preset_from_current_preset();
-#endif // ENABLE_PROJECT_DIRTY_STATE
 }
 
 void PresetCollection::reset(bool delete_files)
@@ -816,10 +812,8 @@ std::pair<Preset*, bool> PresetCollection::load_external_preset(
             // The source config may contain keys from many possible preset types. Just copy those that relate to this preset.
             this->get_edited_preset().config.apply_only(combined_config, keys, true);
             this->update_dirty();
-#if ENABLE_PROJECT_DIRTY_STATE
             update_saved_preset_from_current_preset();
-#endif // ENABLE_PROJECT_DIRTY_STATE
-                assert(this->get_edited_preset().is_dirty);
+            assert(this->get_edited_preset().is_dirty);
             return std::make_pair(&(*it), this->get_edited_preset().is_dirty);
         }
         if (inherits.empty()) {
@@ -1229,9 +1223,7 @@ Preset& PresetCollection::select_preset(size_t idx)
         idx = first_visible_idx();
     m_idx_selected = idx;
     m_edited_preset = m_presets[idx];
-#if ENABLE_PROJECT_DIRTY_STATE
     update_saved_preset_from_current_preset();
-#endif // ENABLE_PROJECT_DIRTY_STATE
     bool default_visible = ! m_default_suppressed || m_idx_selected < m_num_default_presets;
     for (size_t i = 0; i < m_num_default_presets; ++i)
         m_presets[i].is_visible = default_visible;
@@ -1418,6 +1410,7 @@ const std::vector<std::string>& PhysicalPrinter::printer_options()
     static std::vector<std::string> s_opts;
     if (s_opts.empty()) {
         s_opts = {
+            "preset_name", // temporary option to compatibility with older Slicer
             "preset_names",
             "printer_technology",
             "host_type",
@@ -1474,6 +1467,16 @@ bool PhysicalPrinter::has_empty_config() const
             config.opt_string("printhost_password").empty();
 }
 
+// temporary workaround for compatibility with older Slicer
+static void update_preset_name_option(const std::set<std::string>& preset_names, DynamicPrintConfig& config)
+{
+    std::string name;
+    for (auto el : preset_names)
+        name += el + ";";
+    name.pop_back();
+    config.set_key_value("preset_name", new ConfigOptionString(name));
+}
+
 void PhysicalPrinter::update_preset_names_in_config()
 {
     if (!preset_names.empty()) {
@@ -1481,6 +1484,9 @@ void PhysicalPrinter::update_preset_names_in_config()
         values.clear();
         for (auto preset : preset_names)
             values.push_back(preset);
+
+        // temporary workaround for compatibility with older Slicer
+        update_preset_name_option(preset_names, config);
     }
 }
 
@@ -1509,9 +1515,12 @@ void PhysicalPrinter::update_from_config(const DynamicPrintConfig& new_config)
 
     if (values.empty())
         preset_names.clear();
-    else
+    else {
         for (const std::string& val : values)
             preset_names.emplace(val);
+        // temporary workaround for compatibility with older Slicer
+        update_preset_name_option(preset_names, config);
+    }
 }
 
 void PhysicalPrinter::reset_presets()

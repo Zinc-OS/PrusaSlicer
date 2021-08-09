@@ -317,6 +317,8 @@ public:
     bool                        has_support()           const { return m_config.support_material || m_config.support_material_enforce_layers > 0; }
     bool                        has_raft()              const { return m_config.raft_layers > 0; }
     bool                        has_support_material()  const { return this->has_support() || this->has_raft(); }
+    // Checks if the model object is painted using the multi-material painting gizmo.
+    bool                        is_mm_painted()         const { return this->model_object()->is_mm_painted(); };
 
     // returns 0-based indices of extruders used to print the object (without brim, support and other helper extrusions)
     std::vector<unsigned int>   object_extruders() const;
@@ -583,9 +585,7 @@ public:
     const PrintRegion&          get_print_region(size_t idx) const  { return *m_print_regions[idx]; }
     const ToolOrdering&         get_tool_ordering() const { return m_wipe_tower_data.tool_ordering; }
 
-#if ENABLE_SEQUENTIAL_LIMITS
     static bool sequential_print_horizontal_clearance_valid(const Print& print, Polygons* polygons = nullptr);
-#endif // ENABLE_SEQUENTIAL_LIMITS
 
 protected:
     // Invalidates the step, and its depending steps in Print.

@@ -509,12 +509,31 @@ bool PrintObject::invalidate_state_by_config_options(
         } else if (
                opt_key == "perimeters"
             || opt_key == "extra_perimeters"
-            || opt_key == "gap_fill_enabled"
-            || opt_key == "gap_fill_speed"
             || opt_key == "first_layer_extrusion_width"
             || opt_key == "perimeter_extrusion_width"
             || opt_key == "infill_overlap"
             || opt_key == "external_perimeters_first") {
+            steps.emplace_back(posPerimeters);
+        } else if (
+               opt_key == "gap_fill_enabled"
+            || opt_key == "gap_fill_speed") {
+            // Return true if gap-fill speed has changed from zero value to non-zero or from non-zero value to zero.
+            auto is_gap_fill_changed_state_due_to_speed = [&opt_key, &old_config, &new_config]() -> bool {
+                if (opt_key == "gap_fill_speed") {
+                    const auto *old_gap_fill_speed = old_config.option<ConfigOptionFloat>(opt_key);
+                    const auto *new_gap_fill_speed = new_config.option<ConfigOptionFloat>(opt_key);
+                    assert(old_gap_fill_speed && new_gap_fill_speed);
+                    return (old_gap_fill_speed->value > 0.f && new_gap_fill_speed->value == 0.f) ||
+                           (old_gap_fill_speed->value == 0.f && new_gap_fill_speed->value > 0.f);
+                }
+                return false;
+            };
+
+            // Filtering of unprintable regions in multi-material segmentation depends on if gap-fill is enabled or not.
+            // So step posSlice is invalidated when gap-fill was enabled/disabled by option "gap_fill_enabled" or by
+            // changing "gap_fill_speed" to force recomputation of the multi-material segmentation.
+            if (this->is_mm_painted() && (opt_key == "gap_fill_enabled" || (opt_key == "gap_fill_speed" && is_gap_fill_changed_state_due_to_speed())))
+                steps.emplace_back(posSlice);
             steps.emplace_back(posPerimeters);
         } else if (
                opt_key == "layer_height"
@@ -1600,15 +1619,9 @@ PrintRegionConfig region_config_from_model_volume(const PrintRegionConfig &defau
 
 void PrintObject::update_slicing_parameters()
 {
-#if ENABLE_ALLOW_NEGATIVE_Z
     if (!m_slicing_params.valid)
         m_slicing_params = SlicingParameters::create_from_config(
             this->print()->config(), m_config, this->model_object()->bounding_box().max.z(), this->object_extruders());
-#else
-    if (! m_slicing_params.valid)
-        m_slicing_params = SlicingParameters::create_from_config(
-            this->print()->config(), m_config, unscale<double>(this->height()), this->object_extruders());
-#endif // ENABLE_ALLOW_NEGATIVE_Z
 }
 
 SlicingParameters PrintObject::slicing_parameters(const DynamicPrintConfig& full_config, const ModelObject& model_object, float object_max_z)
@@ -1670,7 +1683,6 @@ bool PrintObject::update_layer_height_profile(const ModelObject &model_object, c
         updated = true;
     }
 
-#if ENABLE_ALLOW_NEGATIVE_Z
     // Verify the layer_height_profile.
     if (!layer_height_profile.empty() &&
         // Must not be of even length.
@@ -1678,15 +1690,6 @@ bool PrintObject::update_layer_height_profile(const ModelObject &model_object, c
             // Last entry must be at the top of the object.
             std::abs(layer_height_profile[layer_height_profile.size() - 2] - slicing_parameters.object_print_z_max) > 1e-3))
         layer_height_profile.clear();
-#else
-    // Verify the layer_height_profile.
-    if (! layer_height_profile.empty() && 
-            // Must not be of even length.
-            ((layer_height_profile.size() & 1) != 0 || 
-            // Last entry must be at the top of the object.
-             std::abs(layer_height_profile[layer_height_profile.size() - 2] - slicing_parameters.object_print_z_height()) > 1e-3))
-        layer_height_profile.clear();
-#endif // ENABLE_ALLOW_NEGATIVE_Z
 
     if (layer_height_profile.empty()) {
         //layer_height_profile = layer_height_profile_adaptive(slicing_parameters, model_object.layer_config_ranges, model_object.volumes);

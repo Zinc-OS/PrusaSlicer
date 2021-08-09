@@ -65,8 +65,8 @@ void TriangleSelector::Triangle::set_division(int sides_to_split, int special_si
     assert(sides_to_split >= 0 && sides_to_split <= 3);
     assert(special_side_idx >= 0 && special_side_idx < 3);
     assert(sides_to_split == 1 || sides_to_split == 2 || special_side_idx == 0);
-    this->number_of_splits = sides_to_split;
-    this->special_side_idx = special_side_idx;
+    this->number_of_splits = char(sides_to_split);
+    this->special_side_idx = char(special_side_idx);
 }
 
 inline bool is_point_inside_triangle(const Vec3f &pt, const Vec3f &p1, const Vec3f &p2, const Vec3f &p3)
@@ -167,8 +167,7 @@ void TriangleSelector::select_patch(const Vec3f& hit, int facet_start,
         if (! visited[facet]) {
             if (select_triangle(facet, new_state, triangle_splitting)) {
                 // add neighboring facets to list to be proccessed later
-                for (int n=0; n<3; ++n) {
-                    int neighbor_idx = m_mesh->stl.neighbors_start[facet].neighbor[n];
+                for (int neighbor_idx : m_mesh->stl.neighbors_start[facet].neighbor) {
                     if (neighbor_idx >=0 && (m_cursor.type == SPHERE || faces_camera(neighbor_idx)))
                         facets_to_check.push_back(neighbor_idx);
                 }
@@ -179,9 +178,14 @@ void TriangleSelector::select_patch(const Vec3f& hit, int facet_start,
     }
 }
 
-void TriangleSelector::seed_fill_select_triangles(const Vec3f &hit, int facet_start, float seed_fill_angle)
+void TriangleSelector::seed_fill_select_triangles(const Vec3f &hit, int facet_start, float seed_fill_angle, bool force_reselection)
 {
     assert(facet_start < m_orig_size_indices);
+
+    // Recompute seed fill only if the cursor is pointing on facet unselected by seed fill.
+    if (int start_facet_idx = select_unsplit_triangle(hit, facet_start); start_facet_idx >= 0 && m_triangles[start_facet_idx].is_selected_by_seed_fill() && !force_reselection)
+        return;
+
     this->seed_fill_unselect_all_triangles();
 
     std::vector<bool> visited(m_triangles.size(), false);
@@ -224,7 +228,7 @@ void TriangleSelector::seed_fill_select_triangles(const Vec3f &hit, int facet_st
     }
 }
 
-void TriangleSelector::precompute_all_level_neighbors_recursive(const int facet_idx, const Vec3i &neighbors, const Vec3i &neighbors_propagated, std::vector<Vec3i> &neighbors_out) const
+void TriangleSelector::precompute_all_neighbors_recursive(const int facet_idx, const Vec3i &neighbors, const Vec3i &neighbors_propagated, std::vector<Vec3i> &neighbors_out, std::vector<Vec3i> &neighbors_propagated_out) const
 {
     assert(facet_idx < int(m_triangles.size()));
 
@@ -232,7 +236,8 @@ void TriangleSelector::precompute_all_level_neighbors_recursive(const int facet_
     if (!tr->valid())
         return;
 
-    neighbors_out[facet_idx] = neighbors_propagated;
+    neighbors_out[facet_idx]            = neighbors;
+    neighbors_propagated_out[facet_idx] = neighbors_propagated;
     if (tr->is_split()) {
         assert(this->verify_triangle_neighbors(*tr, neighbors));
 
@@ -243,84 +248,86 @@ void TriangleSelector::precompute_all_level_neighbors_recursive(const int facet_
                 assert(tr->children[i] < int(m_triangles.size()));
                 // Recursion, deep first search over the children of this triangle.
                 // All children of this triangle were created by splitting a single source triangle of the original mesh.
-                this->precompute_all_level_neighbors_recursive(tr->children[i], this->child_neighbors(*tr, neighbors, i), this->child_neighbors_propagated(*tr, neighbors_propagated, i), neighbors_out);
+                this->precompute_all_neighbors_recursive(tr->children[i], this->child_neighbors(*tr, neighbors, i),
+                                                         this->child_neighbors_propagated(*tr, neighbors_propagated, i), neighbors_out,
+                                                         neighbors_propagated_out);
             }
         }
     }
 }
 
-std::vector<Vec3i> TriangleSelector::precompute_all_level_neighbors() const
+std::pair<std::vector<Vec3i>, std::vector<Vec3i>> TriangleSelector::precompute_all_neighbors() const
 {
     std::vector<Vec3i> neighbors(m_triangles.size(), Vec3i(-1, -1, -1));
+    std::vector<Vec3i> neighbors_propagated(m_triangles.size(), Vec3i(-1, -1, -1));
     for (int facet_idx = 0; facet_idx < this->m_orig_size_indices; ++facet_idx) {
-        neighbors[facet_idx] = root_neighbors(*m_mesh, facet_idx);
+        neighbors[facet_idx]            = root_neighbors(*m_mesh, facet_idx);
+        neighbors_propagated[facet_idx] = neighbors[facet_idx];
         assert(this->verify_triangle_neighbors(m_triangles[facet_idx], neighbors[facet_idx]));
         if (m_triangles[facet_idx].is_split())
-            this->precompute_all_level_neighbors_recursive(facet_idx, neighbors[facet_idx], neighbors[facet_idx], neighbors);
+            this->precompute_all_neighbors_recursive(facet_idx, neighbors[facet_idx], neighbors_propagated[facet_idx], neighbors, neighbors_propagated);
     }
-    return neighbors;
+    return std::make_pair(std::move(neighbors), std::move(neighbors_propagated));
 }
 
-bool TriangleSelector::are_triangles_touching(const int first_facet_idx, const int second_facet_idx) const
+// It appends all triangles that are touching the edge (vertexi, vertexj) of the triangle.
+// It doesn't append the triangles that are touching the triangle only by part of the edge that means the triangles are from lower depth.
+void TriangleSelector::append_touching_subtriangles(int itriangle, int vertexi, int vertexj, std::vector<int> &touching_subtriangles_out) const
 {
-    std::array<Linef3, 3> sides_facet = {Linef3(m_vertices[m_triangles[first_facet_idx].verts_idxs[0]].v.cast<double>(), m_vertices[m_triangles[first_facet_idx].verts_idxs[1]].v.cast<double>()),
-                                         Linef3(m_vertices[m_triangles[first_facet_idx].verts_idxs[1]].v.cast<double>(), m_vertices[m_triangles[first_facet_idx].verts_idxs[2]].v.cast<double>()),
-                                         Linef3(m_vertices[m_triangles[first_facet_idx].verts_idxs[2]].v.cast<double>(), m_vertices[m_triangles[first_facet_idx].verts_idxs[0]].v.cast<double>())};
+    if (itriangle == -1)
+        return;
 
-    const Vec3d           p0          = m_vertices[m_triangles[second_facet_idx].verts_idxs[0]].v.cast<double>();
-    const Vec3d           p1          = m_vertices[m_triangles[second_facet_idx].verts_idxs[1]].v.cast<double>();
-    const Vec3d           p2          = m_vertices[m_triangles[second_facet_idx].verts_idxs[2]].v.cast<double>();
+    auto process_subtriangle = [this, &itriangle, &vertexi, &vertexj, &touching_subtriangles_out](const int subtriangle_idx, Partition partition) -> void {
+        assert(subtriangle_idx != -1);
+        if (!m_triangles[subtriangle_idx].is_split())
+            touching_subtriangles_out.emplace_back(subtriangle_idx);
+        else if (int midpoint = this->triangle_midpoint(itriangle, vertexi, vertexj); midpoint != -1)
+            append_touching_subtriangles(subtriangle_idx, partition == Partition::First ? vertexi : midpoint, partition == Partition::First ? midpoint : vertexj, touching_subtriangles_out);
+        else
+            append_touching_subtriangles(subtriangle_idx, vertexi, vertexj, touching_subtriangles_out);
+    };
 
-    for (size_t idx = 0; idx < 3; ++idx)
-        if (line_alg::distance_to_squared(sides_facet[idx], p0) <= EPSILON && (line_alg::distance_to_squared(sides_facet[idx], p1) <= EPSILON || line_alg::distance_to_squared(sides_facet[idx], p2) <= EPSILON))
-            return true;
-        else if (line_alg::distance_to_squared(sides_facet[idx], p1) <= EPSILON && line_alg::distance_to_squared(sides_facet[idx], p2) <= EPSILON)
-            return true;
+    std::pair<int, int> touching = this->triangle_subtriangles(itriangle, vertexi, vertexj);
+    if (touching.first != -1)
+        process_subtriangle(touching.first, Partition::First);
 
-    return false;
-}
-
-std::vector<int> TriangleSelector::neighboring_triangles(const int first_facet_idx, const int second_facet_idx, EnforcerBlockerType second_facet_state) const
-{
-    assert(first_facet_idx < int(m_triangles.size()));
-
-    const Triangle *tr = &m_triangles[first_facet_idx];
-    if (!tr->valid())
-        return {};
-
-    if (!tr->is_split() && tr->get_state() == second_facet_state && (are_triangles_touching(second_facet_idx, first_facet_idx) || are_triangles_touching(first_facet_idx, second_facet_idx)))
-        return {first_facet_idx};
-
-    std::vector<int> neighbor_facets_out;
-    int              num_of_children = tr->number_of_split_sides() + 1;
-    if (num_of_children != 1) {
-        for (int i = 0; i < num_of_children; ++i) {
-            assert(i < int(tr->children.size()));
-            assert(tr->children[i] < int(m_triangles.size()));
-
-            if (std::vector<int> neighbor_facets = neighboring_triangles(tr->children[i], second_facet_idx, second_facet_state); !neighbor_facets.empty())
-                Slic3r::append(neighbor_facets_out, std::move(neighbor_facets));
-        }
-    }
-
-    return neighbor_facets_out;
+    if (touching.second != -1)
+        process_subtriangle(touching.second, Partition::Second);
 }
 
 void TriangleSelector::bucket_fill_select_triangles(const Vec3f& hit, int facet_start, bool propagate)
 {
-    this->seed_fill_unselect_all_triangles();
-
-    int                 start_facet_idx   = select_unsplit_triangle(hit, facet_start);
-    EnforcerBlockerType start_facet_state = m_triangles[start_facet_idx].get_state();
-    if (start_facet_idx == -1)
+    int start_facet_idx = select_unsplit_triangle(hit, facet_start);
+    // Recompute bucket fill only if the cursor is pointing on facet unselected by bucket fill.
+    if (start_facet_idx == -1 || m_triangles[start_facet_idx].is_selected_by_seed_fill())
         return;
+
+    assert(!m_triangles[start_facet_idx].is_split());
+    EnforcerBlockerType start_facet_state = m_triangles[start_facet_idx].get_state();
+    this->seed_fill_unselect_all_triangles();
 
     if (!propagate) {
         m_triangles[start_facet_idx].select_by_seed_fill();
         return;
     }
 
-    std::vector<Vec3i> all_level_neighbors = this->precompute_all_level_neighbors();
+    auto get_all_touching_triangles = [this](int facet_idx, const Vec3i &neighbors, const Vec3i &neighbors_propagated) -> std::vector<int> {
+        assert(facet_idx != -1 && facet_idx < int(m_triangles.size()));
+        assert(this->verify_triangle_neighbors(m_triangles[facet_idx], neighbors));
+        std::vector<int> touching_triangles;
+        Vec3i            vertices = {m_triangles[facet_idx].verts_idxs[0], m_triangles[facet_idx].verts_idxs[1], m_triangles[facet_idx].verts_idxs[2]};
+        append_touching_subtriangles(neighbors(0), vertices(1), vertices(0), touching_triangles);
+        append_touching_subtriangles(neighbors(1), vertices(2), vertices(1), touching_triangles);
+        append_touching_subtriangles(neighbors(2), vertices(0), vertices(2), touching_triangles);
+
+        for (int neighbor_idx : neighbors_propagated)
+            if (neighbor_idx != -1 && !m_triangles[neighbor_idx].is_split())
+                touching_triangles.emplace_back(neighbor_idx);
+
+        return touching_triangles;
+    };
+
+    auto [neighbors, neighbors_propagated] = this->precompute_all_neighbors();
     std::vector<bool>  visited(m_triangles.size(), false);
     std::queue<int>    facet_queue;
 
@@ -332,14 +339,14 @@ void TriangleSelector::bucket_fill_select_triangles(const Vec3f& hit, int facet_
 
         if (!visited[current_facet]) {
             m_triangles[current_facet].select_by_seed_fill();
-            for(int neighbor_idx : all_level_neighbors[current_facet]) {
-                if(!m_triangles[neighbor_idx].is_split()) {
-                    if(m_triangles[neighbor_idx].get_state() == start_facet_state)
-                        facet_queue.push(neighbor_idx);
-                } else {
-                    for(int neighbor_facet_idx : neighboring_triangles(neighbor_idx, current_facet, start_facet_state))
-                        facet_queue.push(neighbor_facet_idx);
-                }
+
+            std::vector<int> touching_triangles = get_all_touching_triangles(current_facet, neighbors[current_facet], neighbors_propagated[current_facet]);
+            for(const int tr_idx : touching_triangles) {
+                if (tr_idx < 0 || visited[tr_idx] || m_triangles[tr_idx].get_state() != start_facet_state)
+                    continue;
+
+                assert(!m_triangles[tr_idx].is_split());
+                facet_queue.push(tr_idx);
             }
         }
 
@@ -428,6 +435,40 @@ int TriangleSelector::neighbor_child(int itriangle, int vertexi, int vertexj, Pa
     return itriangle == -1 ? -1 : this->neighbor_child(m_triangles[itriangle], vertexi, vertexj, partition);
 }
 
+std::pair<int, int> TriangleSelector::triangle_subtriangles(int itriangle, int vertexi, int vertexj) const
+{
+    return itriangle == -1 ? std::make_pair(-1, -1) : Slic3r::TriangleSelector::triangle_subtriangles(m_triangles[itriangle], vertexi, vertexj);
+}
+
+std::pair<int, int> TriangleSelector::triangle_subtriangles(const Triangle &tr, int vertexi, int vertexj)
+{
+    if (tr.number_of_split_sides() == 0)
+        // If this triangle is not split, then there is no subtriangles touching the edge.
+        return std::make_pair(-1, -1);
+
+    // Find the triangle edge.
+    int edge = tr.verts_idxs[0] == vertexi ? 0 : tr.verts_idxs[1] == vertexi ? 1 : 2;
+    assert(tr.verts_idxs[edge] == vertexi);
+    assert(tr.verts_idxs[next_idx_modulo(edge, 3)] == vertexj);
+
+    if (tr.number_of_split_sides() == 1) {
+        return edge == next_idx_modulo(tr.special_side(), 3) ? std::make_pair(tr.children[0], tr.children[1]) :
+                                                                     std::make_pair(tr.children[edge == tr.special_side() ? 0 : 1], -1);
+    } else if (tr.number_of_split_sides() == 2) {
+        return edge == next_idx_modulo(tr.special_side(), 3) ? std::make_pair(tr.children[2], -1) :
+               edge == tr.special_side()                           ? std::make_pair(tr.children[0], tr.children[1]) :
+                                                                     std::make_pair(tr.children[2], tr.children[0]);
+    } else {
+        assert(tr.number_of_split_sides() == 3);
+        assert(tr.special_side() == 0);
+        return edge == 0 ? std::make_pair(tr.children[0], tr.children[1]) :
+               edge == 1 ? std::make_pair(tr.children[1], tr.children[2]) :
+                           std::make_pair(tr.children[2], tr.children[0]);
+    }
+
+    return std::make_pair(-1, -1);
+}
+
 // Return existing midpoint of CCW oriented side (vertexi, vertexj).
 // If itriangle == -1 or if the side sharing (vertexi, vertexj) is not split, return -1.
 int TriangleSelector::triangle_midpoint(const Triangle &tr, int vertexi, int vertexj) const
@@ -475,7 +516,7 @@ int TriangleSelector::triangle_midpoint_or_allocate(int itriangle, int vertexi, 
         Vec3f c = 0.5f * (m_vertices[vertexi].v + m_vertices[vertexj].v);
 #ifdef EXPENSIVE_DEBUG_CHECKS
         // Verify that the vertex is really a new one.
-        auto it = std::find_if(m_vertices.begin(), m_vertices.end(), [this, c](const Vertex &v) {
+        auto it = std::find_if(m_vertices.begin(), m_vertices.end(), [c](const Vertex &v) {
             return v.ref_cnt > 0 && (v.v - c).norm() < EPSILON; });
         assert(it == m_vertices.end());
 #endif // EXPENSIVE_DEBUG_CHECKS
@@ -515,12 +556,8 @@ Vec3i TriangleSelector::child_neighbors(const Triangle &tr, const Vec3i &neighbo
 
     assert(child_idx >= 0 && child_idx <= tr.number_of_split_sides());
     int   i = tr.special_side();
-    int   j = i + 1;
-    if (j >= 3)
-        j = 0;
-    int   k = j + 1;
-    if (k >= 3)
-        k = 0;
+    int   j = next_idx_modulo(i, 3);
+    int   k = next_idx_modulo(j, 3);
 
     Vec3i out;
     switch (tr.number_of_split_sides()) {
@@ -603,23 +640,28 @@ Vec3i TriangleSelector::child_neighbors(const Triangle &tr, const Vec3i &neighbo
 Vec3i TriangleSelector::child_neighbors_propagated(const Triangle &tr, const Vec3i &neighbors, int child_idx) const
 {
     int i = tr.special_side();
-    int j = i + 1;
-    if (j >= 3) j = 0;
-    int k = j + 1;
-    if (k >= 3) k = 0;
+    int j = next_idx_modulo(i, 3);
+    int k = next_idx_modulo(j, 3);
 
     Vec3i out;
+    auto  replace_if_not_exists = [&out](int index_to_replace, int neighbor) {
+        if (out(index_to_replace) == -1)
+            out(index_to_replace) = neighbor;
+    };
+
     switch (tr.number_of_split_sides()) {
     case 1:
         switch (child_idx) {
         case 0:
             out(0) = neighbors(i);
-            out(1) = neighbors(j);
+            out(1) = this->neighbor_child(neighbors(j), tr.verts_idxs[k], tr.verts_idxs[j], Partition::Second);
+            replace_if_not_exists(1, neighbors(j));
             out(2) = tr.children[1];
             break;
         default:
             assert(child_idx == 1);
-            out(0) = neighbors(j);
+            out(0) = this->neighbor_child(neighbors(j), tr.verts_idxs[k], tr.verts_idxs[j], Partition::First);
+            replace_if_not_exists(0, neighbors(j));
             out(1) = neighbors(k);
             out(2) = tr.children[0];
             break;
@@ -629,20 +671,24 @@ Vec3i TriangleSelector::child_neighbors_propagated(const Triangle &tr, const Vec
     case 2:
         switch (child_idx) {
         case 0:
-            out(0) = neighbors(i);
+            out(0) = this->neighbor_child(neighbors(i), tr.verts_idxs[j], tr.verts_idxs[i], Partition::Second);
+            replace_if_not_exists(0, neighbors(i));
             out(1) = tr.children[1];
-            out(2) = neighbors(k);
+            out(2) = this->neighbor_child(neighbors(k), tr.verts_idxs[i], tr.verts_idxs[k], Partition::First);
+            replace_if_not_exists(2, neighbors(k));
             break;
         case 1:
             assert(child_idx == 1);
-            out(0) = neighbors(i);
+            out(0) = this->neighbor_child(neighbors(i), tr.verts_idxs[j], tr.verts_idxs[i], Partition::First);
+            replace_if_not_exists(0, neighbors(i));
             out(1) = tr.children[2];
             out(2) = tr.children[0];
             break;
         default:
             assert(child_idx == 2);
             out(0) = neighbors(j);
-            out(1) = neighbors(k);
+            out(1) = this->neighbor_child(neighbors(k), tr.verts_idxs[i], tr.verts_idxs[k], Partition::Second);
+            replace_if_not_exists(1, neighbors(k));
             out(2) = tr.children[1];
             break;
         }
@@ -652,18 +698,24 @@ Vec3i TriangleSelector::child_neighbors_propagated(const Triangle &tr, const Vec
         assert(tr.special_side() == 0);
         switch (child_idx) {
         case 0:
-            out(0) = neighbors(0);
+            out(0) = this->neighbor_child(neighbors(0), tr.verts_idxs[1], tr.verts_idxs[0], Partition::Second);
+            replace_if_not_exists(0, neighbors(0));
             out(1) = tr.children[3];
-            out(2) = neighbors(2);
+            out(2) = this->neighbor_child(neighbors(2), tr.verts_idxs[0], tr.verts_idxs[2], Partition::First);
+            replace_if_not_exists(2, neighbors(2));
             break;
         case 1:
-            out(0) = neighbors(0);
-            out(1) = neighbors(1);
+            out(0) = this->neighbor_child(neighbors(0), tr.verts_idxs[1], tr.verts_idxs[0], Partition::First);
+            replace_if_not_exists(0, neighbors(0));
+            out(1) = this->neighbor_child(neighbors(1), tr.verts_idxs[2], tr.verts_idxs[1], Partition::Second);
+            replace_if_not_exists(1, neighbors(1));
             out(2) = tr.children[3];
             break;
         case 2:
-            out(0) = neighbors(1);
-            out(1) = neighbors(2);
+            out(0) = this->neighbor_child(neighbors(1), tr.verts_idxs[2], tr.verts_idxs[1], Partition::First);
+            replace_if_not_exists(0, neighbors(1));
+            out(1) = this->neighbor_child(neighbors(2), tr.verts_idxs[0], tr.verts_idxs[2], Partition::Second);
+            replace_if_not_exists(1, neighbors(2));
             out(2) = tr.children[3];
             break;
         default:
@@ -774,10 +826,9 @@ void TriangleSelector::split_triangle(int facet_idx, const Vec3i &neighbors)
         }
     }
 
-    std::array<double, 3> sides;
-    sides = { (*pts[2]-*pts[1]).squaredNorm(),
-              (*pts[0]-*pts[2]).squaredNorm(),
-              (*pts[1]-*pts[0]).squaredNorm() };
+    std::array<double, 3> sides = {(*pts[2] - *pts[1]).squaredNorm(),
+                                   (*pts[0] - *pts[2]).squaredNorm(),
+                                   (*pts[1] - *pts[0]).squaredNorm()};
 
     boost::container::small_vector<int, 3> sides_to_split;
     int side_to_keep = -1;
@@ -795,7 +846,7 @@ void TriangleSelector::split_triangle(int facet_idx, const Vec3i &neighbors)
 
     // Save how the triangle will be split. Second argument makes sense only for one
     // or two split sides, otherwise the value is ignored.
-    tr->set_division(sides_to_split.size(),
+    tr->set_division(int(sides_to_split.size()),
         sides_to_split.size() == 2 ? side_to_keep : sides_to_split[0]);
 
     perform_split(facet_idx, neighbors, old_type);
@@ -878,13 +929,13 @@ void TriangleSelector::undivide_triangle(int facet_idx)
     Triangle& tr = m_triangles[facet_idx];
 
     if (tr.is_split()) {
-        for (int i=0; i<=tr.number_of_split_sides(); ++i) {
+        for (int i = 0; i <= tr.number_of_split_sides(); ++i) {
             int       child    = tr.children[i];
             Triangle &child_tr = m_triangles[child];
             assert(child_tr.valid());
             undivide_triangle(child);
-            for (int i = 0; i < 3; ++ i) {
-                int     iv = child_tr.verts_idxs[i];
+            for (int j = 0; j < 3; ++j) {
+                int     iv = child_tr.verts_idxs[j];
                 Vertex &v  = m_vertices[iv];
                 assert(v.ref_cnt > 0);
                 if (-- v.ref_cnt == 0) {
@@ -1023,12 +1074,12 @@ void TriangleSelector::reset()
     for (const stl_vertex& vert : m_mesh->its.vertices)
         m_vertices.emplace_back(vert);
     m_triangles.reserve(m_mesh->its.indices.size());
-    for (size_t i=0; i<m_mesh->its.indices.size(); ++i) {
-        const stl_triangle_vertex_indices& ind = m_mesh->its.indices[i];
-        push_triangle(ind[0], ind[1], ind[2], i);
+    for (size_t i = 0; i < m_mesh->its.indices.size(); ++i) {
+        const stl_triangle_vertex_indices &ind = m_mesh->its.indices[i];
+        push_triangle(ind[0], ind[1], ind[2], int(i));
     }
-    m_orig_size_vertices = m_vertices.size();
-    m_orig_size_indices  = m_triangles.size();
+    m_orig_size_vertices = int(m_vertices.size());
+    m_orig_size_indices  = int(m_triangles.size());
 }
 
 
@@ -1223,7 +1274,7 @@ void TriangleSelector::get_facets_strict_recursive(
         this->get_facets_split_by_tjoints({tr.verts_idxs[0], tr.verts_idxs[1], tr.verts_idxs[2]}, neighbors, out_triangles);
 }
 
-void TriangleSelector::get_facets_split_by_tjoints(const Vec3i vertices, const Vec3i neighbors, std::vector<stl_triangle_vertex_indices> &out_triangles) const
+void TriangleSelector::get_facets_split_by_tjoints(const Vec3i &vertices, const Vec3i &neighbors, std::vector<stl_triangle_vertex_indices> &out_triangles) const
 {
 // Export this triangle, but first collect the T-joint vertices along its edges.
     Vec3i midpoints(
@@ -1385,9 +1436,10 @@ std::pair<std::vector<std::pair<int, int>>, std::vector<bool>> TriangleSelector:
     return out.data;
 }
 
-void TriangleSelector::deserialize(const std::pair<std::vector<std::pair<int, int>>, std::vector<bool>> &data)
+void TriangleSelector::deserialize(const std::pair<std::vector<std::pair<int, int>>, std::vector<bool>> &data, bool needs_reset)
 {
-    reset(); // dump any current state
+    if (needs_reset)
+        reset(); // dump any current state
 
     // Reserve number of triangles as if each triangle was saved with 4 bits.
     // With MMU painting this estimate may be somehow low, but better than nothing.
@@ -1409,7 +1461,7 @@ void TriangleSelector::deserialize(const std::pair<std::vector<std::pair<int, in
 
     for (auto [triangle_id, ibit] : data.first) {
         assert(triangle_id < int(m_triangles.size()));
-        assert(ibit < data.second.size());
+        assert(ibit < int(data.second.size()));
         auto next_nibble = [&data, &ibit = ibit]() {
             int n = 0;
             for (int i = 0; i < 4; ++ i)
@@ -1495,7 +1547,7 @@ bool TriangleSelector::has_facets(const std::pair<std::vector<std::pair<int, int
 
     for (const std::pair<int, int> &triangle_id_and_ibit : data.first) {
         int ibit = triangle_id_and_ibit.second;
-        assert(ibit < data.second.size());
+        assert(ibit < int(data.second.size()));
         auto next_nibble = [&data, &ibit = ibit]() {
             int n = 0;
             for (int i = 0; i < 4; ++ i)
@@ -1553,7 +1605,7 @@ void TriangleSelector::seed_fill_apply_on_triangles(EnforcerBlockerType new_stat
     for (Triangle &triangle : m_triangles)
         if (triangle.is_split() && triangle.valid()) {
             size_t facet_idx = &triangle - &m_triangles.front();
-            remove_useless_children(facet_idx);
+            remove_useless_children(int(facet_idx));
         }
 }
 
@@ -1567,7 +1619,7 @@ TriangleSelector::Cursor::Cursor(
 {
     Vec3d sf = Geometry::Transformation(trafo_).get_scaling_factor();
     if (is_approx(sf(0), sf(1)) && is_approx(sf(1), sf(2))) {
-        radius_sqr = std::pow(radius_world / sf(0), 2);
+        radius_sqr = float(std::pow(radius_world / sf(0), 2));
         uniform_scaling = true;
     }
     else {

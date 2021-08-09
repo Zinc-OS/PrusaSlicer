@@ -50,6 +50,11 @@ bool GLGizmoMmuSegmentation::on_is_selectable() const
             && wxGetApp().get_mode() != comSimple && wxGetApp().extruders_edited_cnt() > 1);
 }
 
+bool GLGizmoMmuSegmentation::on_is_activable() const
+{
+    return GLGizmoPainterBase::on_is_activable() && wxGetApp().extruders_edited_cnt() > 1;
+}
+
 static std::vector<std::array<float, 4>> get_extruders_colors()
 {
     unsigned char                     rgb_color[3] = {};
@@ -141,6 +146,7 @@ void GLGizmoMmuSegmentation::render_painter_gizmo() const
     render_triangles(selection, false);
 
     m_c->object_clipper()->render_cut();
+    m_c->instances_hider()->render_cut();
     render_cursor();
 
     glsafe(::glDisable(GL_BLEND));
@@ -321,8 +327,15 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
     ImGui::AlignTextToFramePadding();
     ImGui::SameLine(tool_type_offset + m_imgui->scaled(0.f));
     ImGui::PushItemWidth(tool_type_radio_brush);
-    if (m_imgui->radio_button(m_desc["tool_brush"], m_tool_type == GLGizmoMmuSegmentation::ToolType::BRUSH))
+    if (m_imgui->radio_button(m_desc["tool_brush"], m_tool_type == GLGizmoMmuSegmentation::ToolType::BRUSH)) {
         m_tool_type = GLGizmoMmuSegmentation::ToolType::BRUSH;
+        for (auto &triangle_selector : m_triangle_selectors) {
+            triangle_selector->seed_fill_unselect_all_triangles();
+            triangle_selector->request_update_render_data();
+        }
+    }
+
+
 
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
@@ -333,9 +346,9 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
     }
 
     ImGui::SameLine(tool_type_offset + tool_type_radio_brush + m_imgui->scaled(0.f));
-    ImGui::PushItemWidth(tool_type_radio_bucket_fill);
-    if (m_imgui->radio_button(m_desc["tool_bucket_fill"], m_tool_type == GLGizmoMmuSegmentation::ToolType::BUCKET_FILL)) {
-        m_tool_type = GLGizmoMmuSegmentation::ToolType::BUCKET_FILL;
+    ImGui::PushItemWidth(tool_type_radio_seed_fill);
+    if (m_imgui->radio_button(m_desc["tool_seed_fill"], m_tool_type == GLGizmoMmuSegmentation::ToolType::SEED_FILL)) {
+        m_tool_type = GLGizmoMmuSegmentation::ToolType::SEED_FILL;
         for (auto &triangle_selector : m_triangle_selectors) {
             triangle_selector->seed_fill_unselect_all_triangles();
             triangle_selector->request_update_render_data();
@@ -350,10 +363,10 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
         ImGui::EndTooltip();
     }
 
-    ImGui::SameLine(tool_type_offset + tool_type_radio_brush + tool_type_radio_bucket_fill + m_imgui->scaled(0.f));
-    ImGui::PushItemWidth(tool_type_radio_seed_fill);
-    if (m_imgui->radio_button(m_desc["tool_seed_fill"], m_tool_type == GLGizmoMmuSegmentation::ToolType::SEED_FILL)) {
-        m_tool_type = GLGizmoMmuSegmentation::ToolType::SEED_FILL;
+    ImGui::SameLine(tool_type_offset + tool_type_radio_brush + tool_type_radio_seed_fill + m_imgui->scaled(0.f));
+    ImGui::PushItemWidth(tool_type_radio_bucket_fill);
+    if (m_imgui->radio_button(m_desc["tool_bucket_fill"], m_tool_type == GLGizmoMmuSegmentation::ToolType::BUCKET_FILL)) {
+        m_tool_type = GLGizmoMmuSegmentation::ToolType::BUCKET_FILL;
         for (auto &triangle_selector : m_triangle_selectors) {
             triangle_selector->seed_fill_unselect_all_triangles();
             triangle_selector->request_update_render_data();
@@ -363,12 +376,10 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
         ImGui::PushTextWrapPos(max_tooltip_width);
-        ImGui::TextUnformatted(_L("Paints neighboring that have the same color.").ToUTF8().data());
+        ImGui::TextUnformatted(_L("Paints neighboring facets that have the same color.").ToUTF8().data());
         ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
-    // Manually inserted values aren't clamped by ImGui. Zero cursor size results in a crash.
-    m_cursor_radius = std::clamp(m_cursor_radius, CursorRadiusMin, CursorRadiusMax);
 
     ImGui::Separator();
 
@@ -426,7 +437,7 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
         m_imgui->text(m_desc.at("cursor_size"));
         ImGui::SameLine(sliders_width);
         ImGui::PushItemWidth(window_width - sliders_width);
-        ImGui::SliderFloat(" ", &m_cursor_radius, CursorRadiusMin, CursorRadiusMax, "%.2f");
+        m_imgui->slider_float(" ", &m_cursor_radius, CursorRadiusMin, CursorRadiusMax, "%.2f");
         if (ImGui::IsItemHovered()) {
             ImGui::BeginTooltip();
             ImGui::PushTextWrapPos(max_tooltip_width);
@@ -479,7 +490,7 @@ void GLGizmoMmuSegmentation::on_render_input_window(float x, float y, float bott
     ImGui::SameLine(sliders_width);
     ImGui::PushItemWidth(window_width - sliders_width);
     auto clp_dist = float(m_c->object_clipper()->get_position());
-    if (ImGui::SliderFloat("  ", &clp_dist, 0.f, 1.f, "%.2f"))
+    if (m_imgui->slider_float("  ", &clp_dist, 0.f, 1.f, "%.2f"))
         m_c->object_clipper()->set_position(clp_dist, true);
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
@@ -545,7 +556,8 @@ void GLGizmoMmuSegmentation::init_model_triangle_selectors()
 
         int extruder_idx = (mv->extruder_id() > 0) ? mv->extruder_id() - 1 : 0;
         m_triangle_selectors.emplace_back(std::make_unique<TriangleSelectorMmGui>(*mesh, m_modified_extruders_colors, m_original_extruders_colors[size_t(extruder_idx)]));
-        m_triangle_selectors.back()->deserialize(mv->mmu_segmentation_facets.get_data());
+        // Reset of TriangleSelector is done inside TriangleSelectorMmGUI's constructor, so we don't need it to perform it again in deserialize().
+        m_triangle_selectors.back()->deserialize(mv->mmu_segmentation_facets.get_data(), false);
         m_triangle_selectors.back()->request_update_render_data();
     }
     m_original_volumes_extruder_idxs = get_extruder_id_for_volumes(*mo);
