@@ -11,7 +11,8 @@
 namespace ObjParser {
 bool parseMTL(const char* path, mtl_file &mtl, ObjData data){
 #define EATWS1() while (*c == ' ' || *c == '\t') ++ c
-	char mtl_names[12][64];int mtl_diffuse[12][3];
+	char mtl_names[12][64]={0,0,0,0,0,0,0,0,0,0,0,0};
+	int mtl_diffuse[12][3]={0,0,0,0,0,0,0,0,0,0,0,0};
 	
 	int n_mtl_idx=0;
         for(u_int i=0;i<sizeof(data.mtllibs[0])/sizeof(data.mtllibs);i++){
@@ -51,8 +52,6 @@ bool parseMTL(const char* path, mtl_file &mtl, ObjData data){
                 htap[is+last_idx]=data.mtllibs[i][is];
             }
             //DEBUG
-			printf("htap: %s\n",htap);
-			printf("path: %s\n",path);
             FILE *mtl_file = boost::nowide::fopen(htap,"rt");
             if(mtl_file!=0){
                 
@@ -88,46 +87,73 @@ bool parseMTL(const char* path, mtl_file &mtl, ObjData data){
 								case 'N':
 									//Something
 									break;
-									
+								/*
 								case 'K':
-									{
-										if (*(c ++) != 'd')
-											break;
-										//diffuse value, will capture in case there isnt png data, so it doesn't break
-										
-										EATWS1();
-										char *endptr = 0;
-										double r = strtod(c, &endptr);
-										if (endptr == 0 || (*endptr != ' ' && *endptr != '\t'))
-											return false;
-										c = endptr;
-										EATWS1();
-										double g = strtod(c, &endptr);
-										if (endptr == 0 || (*endptr != ' ' && *endptr != '\t'))
-											return false;
-										c = endptr;
-										EATWS1();
-										double b = strtod(c, &endptr);
+									if (*(c ++) != 'd')
+										break;
+									//diffuse value, will capture in case there isnt png data, so it doesn't break
+									
+									EATWS1();
+									char *endptr = 0;
+									double r = strtod(c, &endptr);
+									if (endptr == 0 || (*endptr != ' ' && *endptr != '\t'))
+										return false;
+									c = endptr;
+									EATWS1();
+									double g = strtod(c, &endptr);
+									if (endptr == 0 || (*endptr != ' ' && *endptr != '\t'))
+										return false;
+									c = endptr;
+									EATWS1();
+									double b = strtod(c, &endptr);
+									if (endptr == 0 || (*endptr != ' ' && *endptr != '\t' && *endptr != 0))
+										return false;
+									c = endptr;
+									EATWS1();
+									if (*c != 0) {
+										double a = strtod(c, &endptr);
 										if (endptr == 0 || (*endptr != ' ' && *endptr != '\t' && *endptr != 0))
 											return false;
 										c = endptr;
 										EATWS1();
-										if (*c != 0) {
-											double a = strtod(c, &endptr);
-											if (endptr == 0 || (*endptr != ' ' && *endptr != '\t' && *endptr != 0))
-												return false;
-											c = endptr;
-											EATWS1();
-										}
-										mtl_diffuse[num_mtls][0]=r;
-										mtl_diffuse[num_mtls][1]=g;
-										mtl_diffuse[num_mtls][2]=b;
 									}
+									mtl_diffuse[num_mtls][0]=r;
+									mtl_diffuse[num_mtls][1]=g;
+									mtl_diffuse[num_mtls][2]=b;
 									break;
-									
+								*/
 								case 'x':
 									break;
 									
+								
+									                   
+								case 'd':
+									//diffuse percentage
+									break;
+									
+								case 'm':
+									if (*(c ++) == 'a' &&
+										*(c ++) == 'p' &&
+										*(c ++) == '_' &&
+										*(c ++) == 'K' &&
+										*(c ++) == 'd' &&
+										*(c ++) == ' '){
+										u_int ix=0;
+										while(ix<last_idx+1){
+											mtl.png[num_mtls-1][ix]=dir[ix];
+											ix++;
+										}
+										ix--;
+										u_int si=sizeof(c)+ix;
+										while(ix<si){
+											mtl.png[num_mtls-1][ix]=c[0];
+											c++;
+											ix++;
+											
+										}
+										
+									}
+									break;
 								case 'n':
 									//newmtl
 									if (*(c ++) != 'e' ||
@@ -141,32 +167,7 @@ bool parseMTL(const char* path, mtl_file &mtl, ObjData data){
 										mtl_names[num_mtls][ix]=std::string(c)[ix];
 									}
 									num_mtls++;
-									break;
-									                   
-								case 'd':
-									//diffuse percentage
-									break;
-									
-								case 'm':
-									if (*(c ++) == 'a' &&
-										*(c ++) == 'p' &&
-										*(c ++) == '_' &&
-										*(c ++) == 'K' &&
-										*(c ++) == 'd' &&
-										*(c ++) == ' '){
-										printf("%s\n",dir);
-										printf("%s\n",c);
-										u_int ix=0;
-										while(ix<sizeof(dir)){
-											mtl.png[num_mtls][ix]=dir[ix++];
-											printf("%c",dir[ix]);
-										}
-										u_int is;
-										while(is<sizeof(c)){
-											mtl.png[num_mtls][ix++]=c[is++];
-										}
-										
-									}
+									printf("%s\n",c);
 									break;
 									
 								default:
@@ -198,15 +199,20 @@ bool parseMTL(const char* path, mtl_file &mtl, ObjData data){
         }
 	for(u_int imp=0;imp<sizeof(data.usemtls[0])/sizeof(data.usemtls);imp++){
             for(int imps=0;imps<12;imps++){
+				printf("%s %s\n",data.usemtls[imp].name,mtl_names[imps]);
                 if(data.usemtls[imp].name==mtl_names[imps]){
                     mtl.idx[n_mtl_idx]=data.usemtls[imp].vertexIdxFirst;
-                    mtl.mtl_idx[n_mtl_idx]=imps;//the index. no unneeded strings will be added to stl_file
+                    mtl.mtl_idx[n_mtl_idx]=imps;
                     n_mtl_idx++;
                 }
             }
             
 
         }
+		printf("%d\n",n_mtl_idx);
+		for(u_int iu=n_mtl_idx;iu<64;iu++){
+			mtl.mtl_idx[iu]=-54;
+		}
 		return true;
 }
 static bool obj_parseline(const char *line, ObjData &data)

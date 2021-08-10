@@ -371,32 +371,29 @@ bool load_obj(const char *path, TriangleMesh *meshptr, Model *model,const char *
     model->add_object(object_name.c_str(), path, std::move(mesh));
     //load mtl data
     ObjParser::parseMTL(path, mtl, data);
-    int x1;
+    int x1=0;
     //load images, map uvs, and add triangles of different colors
     for(int i=0;i<stl.facet_start.size();i++){
         png_structp png_ptr;
         png_infop info_ptr;
         //select image;
-        for(int i2=0;i2<64;++i2){
-            if(i>mtl.idx[i2]&&mtl.idx[i2]>-1){
+        for(int i2=0;i2<64;i2++){
+            if(i<=mtl.idx[i2]&&mtl.idx[i2]>-1){
                 x1=i2;
-                printf("check\n");
+                printf("i: %d\ti2: %d\tmtl.idx[i2]: %d\n",i,i2,mtl.idx[i2]);
             }
         }
         for(int p=0;p<12;p++){
-            printf("%s\n",mtl.png[p]);
+            printf("%d: %s\n",p,mtl.png[p]);
         }
         if(!x1){
             printf("no png");
         }
-        int i2=x1;
-        printf("%d\n",i2);
-        printf("success\n");
-        if(i2<64){
-            printf("%s\n",mtl.png[mtl.mtl_idx[i2]]);
+        printf("chckck");
+        if(x1<64){
+            printf("%d: %s\n",x1,mtl.png[mtl.mtl_idx[x1]]);
         }
-
-        mtl_readPNG(mtl.png[mtl.mtl_idx[i2]],png_ptr,info_ptr);
+        mtl_readPNG(mtl.png[mtl.mtl_idx[x1]],png_ptr,info_ptr);
         printf("check1");
         png_bytepp rows = png_get_rows(png_ptr,info_ptr);
         png_uint_32 width = png_get_image_width(png_ptr,info_ptr);
@@ -587,7 +584,6 @@ bool load_obj(const char *path, TriangleMesh *meshptr, Model *model,const char *
             char ch=data.second[n]*0x1+data.second[n+1]*0x2+data.second[n+2]*0x4+data.second[n+3]*0x8;
             STR[n]=ch;
         }
-        //what a terrible workaround. 
         model->objects[0]->volumes[0]->mmu_segmentation_facets.set_triangle_from_string(i,STR);
     }
 
