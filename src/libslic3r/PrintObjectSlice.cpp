@@ -39,23 +39,6 @@ LayerPtrs new_layers(
     return out;
 }
 
-//FIXME The admesh repair function may break the face connectivity, rather refresh it here as the slicing code relies on it.
-// This function will go away once we get rid of admesh from ModelVolume.
-static indexed_triangle_set get_mesh_its_fix_mesh_connectivity(TriangleMesh mesh)
-{
-    assert(mesh.repaired && mesh.has_shared_vertices());
-    if (mesh.stl.stats.number_of_facets > 0) {
-        assert(mesh.repaired && mesh.has_shared_vertices());
-        auto nr_degenerated = mesh.stl.stats.degenerate_facets;
-        stl_check_facets_exact(&mesh.stl);
-        if (nr_degenerated != mesh.stl.stats.degenerate_facets)
-            // stl_check_facets_exact() removed some newly degenerated faces. Some faces could become degenerate after some mesh transformation.
-            stl_generate_shared_vertices(&mesh.stl, mesh.its);
-    } else
-        mesh.its.clear();
-    return std::move(mesh.its);
-}
-
 // Slice single triangle mesh.
 static std::vector<ExPolygons> slice_volume(
     const ModelVolume             &volume,
@@ -65,7 +48,7 @@ static std::vector<ExPolygons> slice_volume(
 {
     std::vector<ExPolygons> layers;
     if (! zs.empty()) {
-        indexed_triangle_set its = get_mesh_its_fix_mesh_connectivity(volume.mesh());
+        indexed_triangle_set its = volume.mesh().its;
         if (its.indices.size() > 0) {
             MeshSlicingParamsEx params2 { params };
             params2.trafo = params2.trafo * volume.get_matrix();
@@ -167,8 +150,9 @@ static std::vector<VolumeSlices> slice_volumes_inner(
 
     params_base.mode_below     = params_base.mode;
 
-    const bool is_mm_painted = std::any_of(model_volumes.cbegin(), model_volumes.cend(), [](const ModelVolume *mv) { return mv->is_mm_painted(); });
-    const auto extra_offset  = is_mm_painted ? 0.f : std::max(0.f, float(print_object_config.xy_size_compensation.value));
+    const size_t num_extruders = print_config.nozzle_diameter.size();
+    const bool   is_mm_painted = num_extruders > 1 && std::any_of(model_volumes.cbegin(), model_volumes.cend(), [](const ModelVolume *mv) { return mv->is_mm_painted(); });
+    const auto   extra_offset  = is_mm_painted ? 0.f : std::max(0.f, float(print_object_config.xy_size_compensation.value));
 
     for (const ModelVolume *model_volume : model_volumes)
         if (model_volume_needs_slicing(*model_volume)) {
@@ -723,6 +707,7 @@ void PrintObject::slice_volumes()
 
     // Is any ModelVolume MMU painted?
     if (const auto& volumes = this->model_object()->volumes;
+        m_print->config().nozzle_diameter.size() > 1 &&
         std::find_if(volumes.begin(), volumes.end(), [](const ModelVolume* v) { return !v->mmu_segmentation_facets.empty(); }) != volumes.end()) {
 
         // If XY Size compensation is also enabled, notify the user that XY Size compensation
@@ -743,8 +728,9 @@ void PrintObject::slice_volumes()
     BOOST_LOG_TRIVIAL(debug) << "Slicing volumes - make_slices in parallel - begin";
     {
         // Compensation value, scaled. Only applying the negative scaling here, as the positive scaling has already been applied during slicing.
-        const auto  xy_compensation_scaled            = this->is_mm_painted() ? scaled<float>(0.f) : scaled<float>(std::min(m_config.xy_size_compensation.value, 0.));
-        const float elephant_foot_compensation_scaled = (m_config.raft_layers == 0) ?
+        const size_t num_extruders = print->config().nozzle_diameter.size();
+        const auto   xy_compensation_scaled            = (num_extruders > 1 && this->is_mm_painted()) ? scaled<float>(0.f) : scaled<float>(std::min(m_config.xy_size_compensation.value, 0.));
+        const float  elephant_foot_compensation_scaled = (m_config.raft_layers == 0) ?
         	// Only enable Elephant foot compensation if printing directly on the print bed.
             float(scale_(m_config.elefant_foot_compensation.value)) :
         	0.f;

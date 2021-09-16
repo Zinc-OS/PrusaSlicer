@@ -3,6 +3,7 @@
 
 #include <wx/dataview.h>
 #include <vector>
+#include <map>
 
 #include "ExtraRenderers.hpp"
 
@@ -251,8 +252,8 @@ class ObjectDataViewModel :public wxDataViewModel
 {
     std::vector<ObjectDataViewModelNode*>       m_objects;
     std::vector<wxBitmap>                       m_volume_bmps;
+    std::map<InfoItemType, wxBitmap>            m_info_bmps;
     wxBitmap                                    m_warning_bmp;
-    wxBitmap                                    m_info_bmp;
 
     wxDataViewCtrl*                             m_ctrl { nullptr };
 
@@ -278,6 +279,7 @@ public:
                                     const t_layer_height_range& layer_range,
                                     const int extruder = 0,
                                     const int index = -1);
+    size_t         GetItemIndexForFirstVolume(ObjectDataViewModelNode* node_parent);
     wxDataViewItem Delete(const wxDataViewItem &item);
     wxDataViewItem DeleteLastInstance(const wxDataViewItem &parent_item, size_t num);
     void DeleteAll();

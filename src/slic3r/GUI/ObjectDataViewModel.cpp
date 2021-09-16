@@ -37,7 +37,20 @@ void ObjectDataViewModelNode::init_container()
 static constexpr char LayerRootIcon[]   = "edit_layers_all";
 static constexpr char LayerIcon[]       = "edit_layers_some";
 static constexpr char WarningIcon[]     = "exclamation";
-static constexpr char InfoIcon[]        = "info";
+
+struct InfoItemAtributes {
+    std::string name;
+    std::string bmp_name;
+};
+
+const std::map<InfoItemType, InfoItemAtributes> INFO_ITEMS{
+//           info_item Type                         info_item Name              info_item BitmapName
+            { InfoItemType::CustomSupports,      {L("Paint-on supports"),       "fdm_supports" },      },
+            { InfoItemType::CustomSeam,          {L("Paint-on seam"),           "seam" },              },
+            { InfoItemType::MmuSegmentation,     {L("Multimaterial painting"),  "mmu_segmentation"},   },
+            { InfoItemType::Sinking,             {L("Sinking"),                 "support_blocker"},    },
+            { InfoItemType::VariableLayerHeight, {L("Variable layer height"),   "layers"},             },
+};
 
 ObjectDataViewModelNode::ObjectDataViewModelNode(ObjectDataViewModelNode*   parent,
                                                  const wxString&            sub_obj_name,
@@ -60,14 +73,10 @@ ObjectDataViewModelNode::ObjectDataViewModelNode(ObjectDataViewModelNode*   pare
 ObjectDataViewModelNode::ObjectDataViewModelNode(ObjectDataViewModelNode* parent, const InfoItemType info_type) :
     m_parent(parent),
     m_type(itInfo),
-    m_extruder(wxEmptyString)
+    m_info_item_type(info_type),
+    m_extruder(wxEmptyString),
+    m_name(_(INFO_ITEMS.at(info_type).name))
 {
-    m_name           = info_type == InfoItemType::CustomSupports  ? _L("Paint-on supports") :
-                       info_type == InfoItemType::CustomSeam      ? _L("Paint-on seam") :
-                       info_type == InfoItemType::MmuSegmentation ? _L("Multimaterial painting") :
-                       info_type == InfoItemType::Sinking         ? _L("Sinking") :
-                                                                    _L("Variable layer height");
-    m_info_item_type = info_type;
 }
 
 
@@ -307,7 +316,8 @@ ObjectDataViewModel::ObjectDataViewModel()
 
     m_volume_bmps = MenuFactory::get_volume_bitmaps();
     m_warning_bmp = create_scaled_bitmap(WarningIcon);
-    m_info_bmp    = create_scaled_bitmap(InfoIcon);
+    for (auto item : INFO_ITEMS)
+        m_info_bmps[item.first] = create_scaled_bitmap(item.second.bmp_name);
 }
 
 ObjectDataViewModel::~ObjectDataViewModel()
@@ -395,14 +405,16 @@ wxDataViewItem ObjectDataViewModel::AddInfoChild(const wxDataViewItem &parent_it
     // The new item should be added according to its order in InfoItemType.
     // Find last info item with lower index and append after it.
     const auto& children = root->GetChildren();
-    int idx = -1;
-    for (int i=0; i<int(children.size()); ++i) {
+    // If SettingsItem exists, it have to be on the first position always
+    bool is_settings_item = children.size() > 0 && children[0]->GetType() == itSettings;
+    int idx = is_settings_item ? 0 : -1;
+    for (size_t i = is_settings_item ? 1 : 0; i < children.size(); ++i) {
         if (children[i]->GetType() == itInfo && int(children[i]->GetInfoItemType()) < int(info_type) )
             idx = i;
     }
 
     root->Insert(node, idx+1);
-    node->SetBitmap(m_info_bmp);
+    node->SetBitmap(m_info_bmps.at(info_type));
     // notify control
     const wxDataViewItem child((void*)node);
     ItemAdded(parent_item, child);
@@ -608,6 +620,15 @@ wxDataViewItem ObjectDataViewModel::AddLayersChild(const wxDataViewItem &parent_
     return layer_item;
 }
 
+size_t ObjectDataViewModel::GetItemIndexForFirstVolume(ObjectDataViewModelNode* node_parent)
+{
+    assert(node_parent->m_volumes_cnt > 0);
+    for (size_t vol_idx = 0; vol_idx < node_parent->GetChildCount(); vol_idx++)
+        if (node_parent->GetNthChild(vol_idx)->GetType() == itVolume)
+            return vol_idx;
+    return -1;
+}
+
 wxDataViewItem ObjectDataViewModel::Delete(const wxDataViewItem &item)
 {
 	auto ret_item = wxDataViewItem(0);
@@ -703,44 +724,34 @@ wxDataViewItem ObjectDataViewModel::Delete(const wxDataViewItem &item)
         }
 
         // if there is last volume item after deleting, delete this last volume too
-        if (node_parent->GetChildCount() <= 3) // 3??? #ys_FIXME
+        if (node_parent->m_volumes_cnt == 1)
         {
-            int vol_cnt = 0;
-            int vol_idx = 0;
-            for (size_t i = 0; i < node_parent->GetChildCount(); ++i) {
-                if (node_parent->GetNthChild(i)->GetType() == itVolume) {
-                    vol_idx = i;
-                    vol_cnt++;
-                }
-                if (vol_cnt > 1)
-                    break;
-            }
+            // delete selected (penult) volume
+            delete node;
+            ItemDeleted(parent, item);
 
-            if (vol_cnt == 1) {
-                delete node;
-                ItemDeleted(parent, item);
+            // get index of the last VolumeItem in CildrenList
+            size_t vol_idx = GetItemIndexForFirstVolume(node_parent);
 
-                ObjectDataViewModelNode *last_child_node = node_parent->GetNthChild(vol_idx);
-                DeleteSettings(wxDataViewItem(last_child_node));
-                node_parent->GetChildren().Remove(last_child_node);
-                node_parent->m_volumes_cnt = 0;
-                delete last_child_node;
+            // delete this last volume
+            ObjectDataViewModelNode *last_child_node = node_parent->GetNthChild(vol_idx);
+            DeleteSettings(wxDataViewItem(last_child_node));
+            node_parent->GetChildren().Remove(last_child_node);
+            node_parent->m_volumes_cnt = 0;
+            delete last_child_node;
 
 #ifndef __WXGTK__
-                if (node_parent->GetChildCount() == 0)
-                    node_parent->m_container = false;
+            if (node_parent->GetChildCount() == 0)
+                node_parent->m_container = false;
 #endif //__WXGTK__
-                ItemDeleted(parent, wxDataViewItem(last_child_node));
+            ItemDeleted(parent, wxDataViewItem(last_child_node));
 
-                wxCommandEvent event(wxCUSTOMEVT_LAST_VOLUME_IS_DELETED);
-                auto it = find(m_objects.begin(), m_objects.end(), node_parent);
-                event.SetInt(it == m_objects.end() ? -1 : it - m_objects.begin());
-                wxPostEvent(m_ctrl, event);
+            wxCommandEvent event(wxCUSTOMEVT_LAST_VOLUME_IS_DELETED);
+            auto it = find(m_objects.begin(), m_objects.end(), node_parent);
+            event.SetInt(it == m_objects.end() ? -1 : it - m_objects.begin());
+            wxPostEvent(m_ctrl, event);
 
-                ret_item = parent;
-
-                return ret_item;
-            }
+            return parent;
         }
 	}
 	else
@@ -1130,7 +1141,7 @@ void ObjectDataViewModel::GetItemInfo(const wxDataViewItem& item, ItemType& type
     if (!node || 
         node->GetIdx() <-1 || 
         ( node->GetIdx() == -1 && 
-         !(node->GetType() & (itObject | itSettings | itInstanceRoot | itLayerRoot/* | itLayer*/))
+         !(node->GetType() & (itObject | itSettings | itInstanceRoot | itLayerRoot | itInfo))
         )
        )
         return;
@@ -1350,7 +1361,7 @@ wxDataViewItem ObjectDataViewModel::ReorganizeChildren( const int current_volume
     if (!node_parent)      // happens if item.IsOk()==false
         return ret_item;
 
-    const size_t shift = node_parent->GetChildren().Item(0)->m_type == itSettings ? 1 : 0;
+    size_t shift = GetItemIndexForFirstVolume(node_parent);
 
     ObjectDataViewModelNode *deleted_node = node_parent->GetNthChild(current_volume_id+shift);
     node_parent->GetChildren().Remove(deleted_node);

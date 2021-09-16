@@ -197,6 +197,17 @@ wxWindow* BitmapTextRenderer::CreateEditorCtrl(wxWindow* parent, wxRect labelRec
         labelRect.SetWidth(labelRect.GetWidth() - bmp_width);
     }
 
+#ifdef __WXMSW__
+    // Case when from some reason we try to create next EditorCtrl till old one was not deleted
+    if (auto children = parent->GetChildren(); children.GetCount() > 0)
+        for (auto child : children)
+            if (dynamic_cast<wxTextCtrl*>(child)) {
+                parent->RemoveChild(child);
+                child->Destroy();
+                break;
+            }
+#endif // __WXMSW__
+
     wxTextCtrl* text_editor = new wxTextCtrl(parent, wxID_ANY, data.GetText(),
                                              position, labelRect.GetSize(), wxTE_PROCESS_ENTER);
     text_editor->SetInsertionPointEnd();
@@ -315,9 +326,11 @@ wxWindow* BitmapChoiceRenderer::CreateEditorCtrl(wxWindow* parent, wxRect labelR
     // to avoid event propagation to other sidebar items
     c_editor->Bind(wxEVT_COMBOBOX, [this](wxCommandEvent& evt) {
             evt.StopPropagation();
+#ifdef __linux__
             // FinishEditing grabs new selection and triggers config update. We better call
             // it explicitly, automatic update on KILL_FOCUS didn't work on Linux.
             this->FinishEditing();
+#endif
     });
 
     return c_editor;

@@ -6,6 +6,7 @@
 namespace Slic3r { namespace GUI {
 
 class Plater;
+class NotificationManager;
 
 class FillBedJob : public PlaterJob
 {
@@ -24,18 +25,17 @@ class FillBedJob : public PlaterJob
 protected:
 
     void prepare() override;
+    void process() override;
 
 public:
-    FillBedJob(std::shared_ptr<ProgressIndicator> pri, Plater *plater)
-        : PlaterJob{std::move(pri), plater}
+    FillBedJob(std::shared_ptr<NotificationManager> nm, Plater *plater)
+        : PlaterJob{nm, plater}
     {}
 
     int status_range() const override
     {
         return m_status_range;
     }
-
-    void process() override;
 
     void finalize() override;
 };

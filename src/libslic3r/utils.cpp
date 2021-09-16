@@ -1,6 +1,7 @@
 #include "Utils.hpp"
 #include "I18N.hpp"
 
+#include <atomic>
 #include <locale>
 #include <ctime>
 #include <cstdarg>
@@ -205,6 +206,23 @@ const std::string& data_dir()
 std::string custom_shapes_dir()
 {
     return (boost::filesystem::path(g_data_dir) / "shapes").string();
+}
+
+static std::atomic<bool> debug_out_path_called(false);
+
+std::string debug_out_path(const char *name, ...)
+{
+	static constexpr const char *SLIC3R_DEBUG_OUT_PATH_PREFIX = "out/";
+    if (! debug_out_path_called.exchange(true)) {
+		std::string path = boost::filesystem::system_complete(SLIC3R_DEBUG_OUT_PATH_PREFIX).string();
+        printf("Debugging output files will be written to %s\n", path.c_str());
+    }
+	char buffer[2048];
+	va_list args;
+	va_start(args, name);
+	std::vsprintf(buffer, name, args);
+	va_end(args);
+	return std::string(SLIC3R_DEBUG_OUT_PATH_PREFIX) + std::string(buffer);
 }
 
 #ifdef _WIN32
@@ -888,7 +906,7 @@ unsigned get_current_pid()
 #endif
 }
 
-std::string xml_escape(std::string text)
+std::string xml_escape(std::string text, bool is_marked/* = false*/)
 {
     std::string::size_type pos = 0;
     for (;;)
@@ -903,8 +921,8 @@ std::string xml_escape(std::string text)
         case '\"': replacement = "&quot;"; break;
         case '\'': replacement = "&apos;"; break;
         case '&':  replacement = "&amp;";  break;
-        case '<':  replacement = "&lt;";   break;
-        case '>':  replacement = "&gt;";   break;
+        case '<':  replacement = is_marked ? "<" :"&lt;"; break;
+        case '>':  replacement = is_marked ? ">" :"&gt;"; break;
         default: break;
         }
 
@@ -966,16 +984,11 @@ std::string log_memory_info(bool ignore_loglevel)
         } PROCESS_MEMORY_COUNTERS_EX, *PPROCESS_MEMORY_COUNTERS_EX;
     #endif /* PROCESS_MEMORY_COUNTERS_EX */
 
-
-        HANDLE hProcess = ::OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, ::GetCurrentProcessId());
-        if (hProcess != nullptr) {
-            PROCESS_MEMORY_COUNTERS_EX pmc;
-            if (GetProcessMemoryInfo(hProcess, (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc)))
-                out = " WorkingSet: " + format_memsize_MB(pmc.WorkingSetSize) + "; PrivateBytes: " + format_memsize_MB(pmc.PrivateUsage) + "; Pagefile(peak): " + format_memsize_MB(pmc.PagefileUsage) + "(" + format_memsize_MB(pmc.PeakPagefileUsage) + ")";
-            else
-                out += " Used memory: N/A";
-            CloseHandle(hProcess);
-        }
+        PROCESS_MEMORY_COUNTERS_EX pmc;
+        if (GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc)))
+            out = " WorkingSet: " + format_memsize_MB(pmc.WorkingSetSize) + "; PrivateBytes: " + format_memsize_MB(pmc.PrivateUsage) + "; Pagefile(peak): " + format_memsize_MB(pmc.PagefileUsage) + "(" + format_memsize_MB(pmc.PeakPagefileUsage) + ")";
+        else
+            out += " Used memory: N/A";
 #elif defined(__linux__) or defined(__APPLE__)
         // Get current memory usage.
     #ifdef __APPLE__

@@ -8,14 +8,13 @@
 
 #include <slic3r/GUI/I18N.hpp>
 
-#include "ProgressIndicator.hpp"
-
 #include <wx/event.h>
 
 #include <boost/thread.hpp>
 
 namespace Slic3r { namespace GUI {
 
+class NotificationManager;
 // A class to handle UI jobs like arranging and optimizing rotation.
 // These are not instant jobs, the user has to be informed about their
 // state in the status progress indicator. On the other hand they are
@@ -33,7 +32,7 @@ class Job : public wxEvtHandler
     boost::thread     m_thread;
     std::atomic<bool> m_running{false}, m_canceled{false};
     bool              m_finalized = false, m_finalizing = false;
-    std::shared_ptr<ProgressIndicator> m_progress;
+    std::shared_ptr<NotificationManager>               m_notifications;
     std::exception_ptr                 m_worker_error = nullptr;
     
     void run(std::exception_ptr &);
@@ -49,14 +48,23 @@ protected:
 
     // Launched just before start(), a job can use it to prepare internals
     virtual void prepare() {}
+
+    // The method where the actual work of the job should be defined.
+    virtual void process() = 0;
     
     // Launched when the job is finished. It refreshes the 3Dscene by def.
     virtual void finalize() { m_finalized = true; }
 
-    virtual void on_exception(const std::exception_ptr &) {}
+    // Exceptions occuring in process() are redirected from the worker thread
+    // into the main (UI) thread. This method is called from the main thread and
+    // can be overriden to handle these exceptions.
+    virtual void on_exception(const std::exception_ptr &eptr)
+    {
+        if (eptr) std::rethrow_exception(eptr);
+    }
    
 public:
-    Job(std::shared_ptr<ProgressIndicator> pri);
+    Job(std::shared_ptr<NotificationManager> nm);
     
     bool is_finalized() const { return m_finalized; }
     
@@ -64,8 +72,6 @@ public:
     Job(Job &&)      = delete;
     Job &operator=(const Job &) = delete;
     Job &operator=(Job &&) = delete;
-    
-    virtual void process() = 0;
     
     void start();
     

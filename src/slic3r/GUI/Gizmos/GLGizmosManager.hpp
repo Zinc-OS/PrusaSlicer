@@ -104,7 +104,7 @@ private:
     std::vector<size_t> get_selectable_idxs() const;
     size_t get_gizmo_idx_from_mouse(const Vec2d& mouse_pos) const;
 
-    void activate_gizmo(EType type);
+    bool activate_gizmo(EType type);
 
     struct MouseCapture
     {
@@ -122,7 +122,6 @@ private:
     MouseCapture m_mouse_capture;
     std::string m_tooltip;
     bool m_serializing;
-    //std::unique_ptr<CommonGizmosData> m_common_gizmos_data;
     std::unique_ptr<CommonGizmosDataPool> m_common_gizmos_data;
 
 public:
@@ -177,6 +176,7 @@ public:
     void reset_all_states();
     bool is_serializing() const { return m_serializing; }
     bool open_gizmo(EType type);
+    bool check_gizmos_closed_except(EType) const;
 
     void set_hover_id(int id);
     void enable_grabber(EType type, unsigned int id, bool enable);
@@ -218,6 +218,7 @@ public:
     bool wants_reslice_supports_on_undo() const;
 
     bool is_in_editing_mode(bool error_notification = false) const;
+    bool is_hiding_instances() const;
 
     void render_current_gizmo() const;
     void render_current_gizmo_for_picking_pass() const;
