@@ -397,7 +397,7 @@ int CLI::run(int argc, char **argv)
                 TriangleMesh mesh = model.mesh();
                 mesh.repair();
 
-                TriangleMeshPtrs meshes = mesh.cut_by_grid(m_config.option<ConfigOptionPoint>("cut_grid")->value);
+                std::vector<TriangleMesh> meshes = mesh.cut_by_grid(m_config.option<ConfigOptionPoint>("cut_grid")->value);
                 size_t i = 0;
                 for (TriangleMesh* m : meshes) {
                     Model out;
@@ -705,7 +705,7 @@ bool CLI::setup(int argc, char **argv)
 
     // Initialize with defaults.
     for (const t_optiondef_map *options : { &cli_actions_config_def.options, &cli_transform_config_def.options, &cli_misc_config_def.options })
-        for (const std::pair<t_config_option_key, ConfigOptionDef> &optdef : *options)
+        for (const t_optiondef_map::value_type &optdef : *options)
             m_config.option(optdef.first, true);
 
     set_data_dir(m_config.opt_string("datadir"));

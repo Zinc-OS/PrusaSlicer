@@ -52,8 +52,6 @@ std::vector<size_t> GLGizmosManager::get_selectable_idxs() const
     return out;
 }
 
-
-
 size_t GLGizmosManager::get_gizmo_idx_from_mouse(const Vec2d& mouse_pos) const
 {
     if (! m_enabled)
@@ -194,7 +192,7 @@ bool GLGizmosManager::check_gizmos_closed_except(EType type) const
     if (get_current_type() != type && get_current_type() != Undefined) {
         wxGetApp().plater()->get_notification_manager()->push_notification(
                     NotificationType::CustomSupportsAndSeamRemovedAfterRepair,
-                    NotificationManager::NotificationLevel::RegularNotificationLevel,
+                    NotificationManager::NotificationLevel::PrintInfoNotificationLevel,
                     _u8L("ERROR: Please close all manipulators available from "
                          "the left toolbar first"));
         return false;
@@ -485,7 +483,7 @@ void GLGizmosManager::render_painter_gizmo() const
     if (!m_enabled || m_current == Undefined)
         return;
 
-    auto* gizmo = dynamic_cast<GLGizmoPainterBase*>(get_current());
+    auto *gizmo = dynamic_cast<GLGizmoTransparentRender*>(get_current());
     assert(gizmo); // check the precondition
     gizmo->render_painter_gizmo();
 }
@@ -550,7 +548,7 @@ bool GLGizmosManager::on_mouse(wxMouseEvent& evt)
     // mouse anywhere
     if (evt.Moving()) {
         m_tooltip = update_hover_state(mouse_pos);
-        if (m_current == MmuSegmentation)
+        if (m_current == MmuSegmentation || m_current == FdmSupports)
             gizmo_event(SLAGizmoEventType::Moving, mouse_pos, evt.ShiftDown(), evt.AltDown());
     } else if (evt.LeftUp()) {
         if (m_mouse_capture.left) {
@@ -717,12 +715,22 @@ bool GLGizmosManager::on_mouse(wxMouseEvent& evt)
         }
         else if (evt.LeftUp() && m_current == Flatten && m_gizmos[m_current]->get_hover_id() != -1) {
             // to avoid to loose the selection when user clicks an the white faces of a different object while the Flatten gizmo is active
+#if ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
+            selection.stop_dragging();
+            wxGetApp().obj_manipul()->set_dirty();
+#endif // ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
             processed = true;
         }
         else if (evt.RightUp() && (m_current == FdmSupports || m_current == Seam || m_current == MmuSegmentation) && !m_parent.is_mouse_dragging()) {
             gizmo_event(SLAGizmoEventType::RightUp, mouse_pos, evt.ShiftDown(), evt.AltDown(), control_down);
             processed = true;
         }
+#if ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
+        else if (evt.LeftUp()) {
+            selection.stop_dragging();
+            wxGetApp().obj_manipul()->set_dirty();
+        }
+#endif // ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
     }
     else {
         // mouse inside toolbar
@@ -926,6 +934,10 @@ bool GLGizmosManager::on_key(wxKeyEvent& evt)
             case WXK_NUMPAD_DOWN: case WXK_DOWN: { do_move(-1.0); break; }
             default: { break; }
             }
+        } else if (m_current == Simplify && keyCode == WXK_ESCAPE) {
+            GLGizmoSimplify *simplify = dynamic_cast<GLGizmoSimplify *>(get_current());
+            if (simplify != nullptr) 
+                processed = simplify->on_esc_key_down();
         }
     }
 
@@ -1222,13 +1234,15 @@ bool GLGizmosManager::activate_gizmo(EType type)
         if (! m_parent.get_gizmos_manager().is_serializing()
          && old_gizmo->wants_enter_leave_snapshots())
             Plater::TakeSnapshot snapshot(wxGetApp().plater(),
-                Slic3r::format(_utf8("Leaving %1%"), old_gizmo->get_name(false)));
+                Slic3r::format(_utf8("Leaving %1%"), old_gizmo->get_name(false)),
+                UndoRedo::SnapshotType::LeavingGizmoWithAction);
     }
 
     if (new_gizmo && ! m_parent.get_gizmos_manager().is_serializing()
      && new_gizmo->wants_enter_leave_snapshots())
         Plater::TakeSnapshot snapshot(wxGetApp().plater(),
-            Slic3r::format(_utf8("Entering %1%"), new_gizmo->get_name(false)));
+            Slic3r::format(_utf8("Entering %1%"), new_gizmo->get_name(false)),
+            UndoRedo::SnapshotType::EnteringGizmo);
 
     m_current = type;
 

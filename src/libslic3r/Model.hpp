@@ -346,13 +346,12 @@ public:
     void mirror(Axis axis);
 
     // This method could only be called before the meshes of this ModelVolumes are not shared!
-    void scale_mesh_after_creation(const Vec3d& versor);
+    void scale_mesh_after_creation(const float scale);
     void convert_units(ModelObjectPtrs&new_objects, ConversionType conv_type, std::vector<int> volume_idxs);
 
     size_t materials_count() const;
     size_t facets_count() const;
     size_t parts_count() const;
-    bool needed_repair() const;
     ModelObjectPtrs cut(size_t instance, coordf_t z, ModelObjectCutAttributes attributes);
     void split(ModelObjectPtrs* new_objects);
     void merge();
@@ -368,7 +367,11 @@ public:
     double get_instance_max_z(size_t instance_idx) const;
 
     // Called by Print::validate() from the UI thread.
+#if ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
+    unsigned int check_instances_print_volume_state(const Polygon& printbed_shape, double print_volume_height);
+#else
     unsigned int check_instances_print_volume_state(const BoundingBoxf3& print_volume);
+#endif // ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
 
     // Print object statistics to console.
     void print_info() const;
@@ -376,9 +379,9 @@ public:
     std::string get_export_filename() const;
 
     // Get full stl statistics for all object's meshes
-    stl_stats   get_object_stl_stats() const;
+    TriangleMeshStats get_object_stl_stats() const;
     // Get count of errors in the mesh( or all object's meshes, if volume index isn't defined)
-    int         get_mesh_errors_count(const int vol_idx = -1) const;
+    int         get_repaired_errors_count(const int vol_idx = -1) const;
 
 private:
     friend class Model;
@@ -620,6 +623,8 @@ public:
     const TriangleMesh& mesh() const { return *m_mesh.get(); }
     void                set_mesh(const TriangleMesh &mesh) { m_mesh = std::make_shared<const TriangleMesh>(mesh); }
     void                set_mesh(TriangleMesh &&mesh) { m_mesh = std::make_shared<const TriangleMesh>(std::move(mesh)); }
+    void                set_mesh(const indexed_triangle_set &mesh) { m_mesh = std::make_shared<const TriangleMesh>(mesh); }
+    void                set_mesh(indexed_triangle_set &&mesh) { m_mesh = std::make_shared<const TriangleMesh>(std::move(mesh)); }
     void                set_mesh(std::shared_ptr<const TriangleMesh> &mesh) { m_mesh = mesh; }
     void                set_mesh(std::unique_ptr<const TriangleMesh> &&mesh) { m_mesh = std::move(mesh); }
 	void				reset_mesh() { m_mesh = std::make_shared<const TriangleMesh>(); }
@@ -670,7 +675,8 @@ public:
     void                mirror(Axis axis);
 
     // This method could only be called before the meshes of this ModelVolumes are not shared!
-    void                scale_geometry_after_creation(const Vec3d& versor);
+    void                scale_geometry_after_creation(const Vec3f &versor);
+    void                scale_geometry_after_creation(const float scale) { this->scale_geometry_after_creation(Vec3f(scale, scale, scale)); }
 
     // Translates the mesh and the convex hull so that the origin of their vertices is in the center of this volume's bounding box.
     // Attention! This method may only be called just after ModelVolume creation! It must not be called once the TriangleMesh of this ModelVolume is shared!
@@ -680,7 +686,7 @@ public:
     const TriangleMesh& get_convex_hull() const;
     std::shared_ptr<const TriangleMesh> get_convex_hull_shared_ptr() const { return m_convex_hull; }
     // Get count of errors in the mesh
-    int                 get_mesh_errors_count() const;
+    int                 get_repaired_errors_count() const;
 
     // Helpers for loading / storing into AMF / 3MF files.
     static ModelVolumeType type_from_string(const std::string &s);
@@ -902,6 +908,16 @@ enum ModelInstanceEPrintVolumeState : unsigned char
     ModelInstanceNum_BedStates
 };
 
+#if ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
+// return the state of the given object's volume (extrusion along z of obj_hull_2d from obj_min_z to obj_max_z)
+// with respect to the given print volume (extrusion along z of printbed_shape from zero to print_volume_height)
+// Using rotating callipers to check for collision of two convex polygons.
+ModelInstanceEPrintVolumeState printbed_collision_state(const Polygon& printbed_shape, double print_volume_height, const Polygon& obj_hull_2d, double obj_min_z, double obj_max_z);
+// return the state of the given box
+// with respect to the given print volume (extrusion along z of printbed_shape from zero to print_volume_height)
+// Commented out, using rotating callipers is quite expensive for a bounding box test.
+//ModelInstanceEPrintVolumeState printbed_collision_state(const Polygon& printbed_shape, double print_volume_height, const BoundingBoxf3& box);
+#endif // ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
 
 // A single instance of a ModelObject.
 // Knows the affine transformation of an object.
@@ -1107,8 +1123,13 @@ public:
     BoundingBoxf3 bounding_box() const;
     // Set the print_volume_state of PrintObject::instances, 
     // return total number of printable objects.
+#if ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
+    // printbed_shape is convex polygon
+    unsigned int  update_print_volume_state(const Polygon& printbed_shape, double print_volume_height);
+#else
     unsigned int  update_print_volume_state(const BoundingBoxf3 &print_volume);
-	// Returns true if any ModelObject was modified.
+#endif // ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
+    // Returns true if any ModelObject was modified.
     bool 		  center_instances_around_point(const Vec2d &point);
     void 		  translate(coordf_t x, coordf_t y, coordf_t z) { for (ModelObject *o : this->objects) o->translate(x, y, z); }
     TriangleMesh  mesh() const;
@@ -1122,6 +1143,7 @@ public:
     void          convert_from_imperial_units(bool only_small_volumes);
     bool          looks_like_saved_in_meters() const;
     void          convert_from_meters(bool only_small_volumes);
+    int           removed_objects_with_zero_volume();
 
     // Ensures that the min z of the model is not negative
     void 		  adjust_min_z();

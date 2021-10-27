@@ -402,6 +402,7 @@ bool fix_model_by_win10_sdk_gui(ModelObject &model_object, int volume_idx, wxPro
 			}
 			for (size_t i = 0; i < volumes.size(); ++ i) {
 				volumes[i]->set_mesh(std::move(meshes_repaired[i]));
+				volumes[i]->calculate_convex_hull();
 				volumes[i]->set_new_unique_id();
 			}
 			model_object.invalidate_bounding_box();
@@ -420,7 +421,7 @@ bool fix_model_by_win10_sdk_gui(ModelObject &model_object, int volume_idx, wxPro
 		}
 	});
     while (! finished) {
-		condition.wait_for(lock, std::chrono::milliseconds(500), [&progress]{ return progress.updated; });
+		condition.wait_for(lock, std::chrono::milliseconds(250), [&progress]{ return progress.updated; });
 		// decrease progress.percent value to avoid closing of the progress dialog
 		if (!progress_dialog.Update(progress.percent-1, msg_header + _(progress.message)))
 			canceled = true;

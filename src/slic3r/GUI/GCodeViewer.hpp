@@ -31,6 +31,9 @@ class GCodeViewer
     using InstanceBuffer = std::vector<float>;
     using InstanceIdBuffer = std::vector<size_t>;
 #endif // ENABLE_SEAMS_USING_MODELS
+#if ENABLE_FIX_SEAMS_SYNCH
+    using InstancesOffsets = std::vector<Vec3f>;
+#endif // ENABLE_FIX_SEAMS_SYNCH
 
     static const std::vector<Color> Extrusion_Role_Colors;
     static const std::vector<Color> Options_Colors;
@@ -151,6 +154,10 @@ class GCodeViewer
         InstanceBuffer buffer;
         // indices of the moves for all instances
         std::vector<size_t> s_ids;
+#if ENABLE_FIX_SEAMS_SYNCH
+        // position offsets, used to show the correct value of the tool position
+        InstancesOffsets offsets;
+#endif // ENABLE_FIX_SEAMS_SYNCH
         Ranges render_ranges;
 
         size_t data_size_bytes() const { return s_ids.size() * instance_size_bytes(); }
@@ -665,6 +672,12 @@ public:
             GLModel m_model;
             Vec3f m_world_position;
             Transform3f m_world_transform;
+#if ENABLE_FIX_SEAMS_SYNCH
+            // for seams, the position of the marker is on the last endpoint of the toolpath containing it
+            // the offset is used to show the correct value of tool position in the "ToolPosition" window
+            // see implementation of render() method
+            Vec3f m_world_offset;
+#endif // ENABLE_FIX_SEAMS_SYNCH
             float m_z_offset{ 0.5f };
             bool m_visible{ true };
 
@@ -674,6 +687,9 @@ public:
             const BoundingBoxf3& get_bounding_box() const { return m_model.get_bounding_box(); }
 
             void set_world_position(const Vec3f& position);
+#if ENABLE_FIX_SEAMS_SYNCH
+            void set_world_offset(const Vec3f& offset) { m_world_offset = offset; }
+#endif // ENABLE_FIX_SEAMS_SYNCH
 
             bool is_visible() const { return m_visible; }
             void set_visible(bool visible) { m_visible = visible; }
@@ -731,6 +747,9 @@ public:
         Endpoints global;
 #endif // ENABLE_SEAMS_USING_MODELS
         Vec3f current_position{ Vec3f::Zero() };
+#if ENABLE_FIX_SEAMS_SYNCH
+        Vec3f current_offset{ Vec3f::Zero() };
+#endif // ENABLE_FIX_SEAMS_SYNCH
         Marker marker;
         GCodeWindow gcode_window;
         std::vector<unsigned int> gcode_ids;
@@ -761,6 +780,9 @@ private:
     BoundingBoxf3 m_paths_bounding_box;
     // bounding box of toolpaths + marker tools
     BoundingBoxf3 m_max_bounding_box;
+#if ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
+    float m_max_print_height{ 0.0f };
+#endif // ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
     std::vector<Color> m_tool_colors;
     Layers m_layers;
     std::array<unsigned int, 2> m_layers_z_range;
@@ -785,9 +807,17 @@ private:
 
     std::vector<CustomGCode::Item> m_custom_gcode_per_print_z;
 
+#if ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
+    bool m_contained_in_bed{ true };
+#endif // ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
+
 public:
     GCodeViewer();
     ~GCodeViewer() { reset(); }
+
+#if ENABLE_SEAMS_USING_MODELS
+    void init();
+#endif // ENABLE_SEAMS_USING_MODELS
 
     // extract rendering data from the given parameters
     void load(const GCodeProcessor::Result& gcode_result, const Print& print, bool initialized);
@@ -808,6 +838,10 @@ public:
 
     const SequentialView& get_sequential_view() const { return m_sequential_view; }
     void update_sequential_view_current(unsigned int first, unsigned int last);
+
+#if ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
+    bool is_contained_in_bed() const { return m_contained_in_bed; }
+#endif // ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS
 
     EViewType get_view_type() const { return m_view_type; }
     void set_view_type(EViewType type) {

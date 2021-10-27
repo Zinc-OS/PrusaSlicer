@@ -332,7 +332,7 @@ void slice_facet_at_zs(
         if (min_z != max_z && slice_facet(*it, vertices, indices, edge_ids, idx_vertex_lowest, false, il) == FacetSliceType::Slicing) {
             assert(il.edge_type != IntersectionLine::FacetEdgeType::Horizontal);
             size_t slice_id = it - zs.begin();
-            boost::lock_guard<std::mutex> l(lines_mutex[slice_id >> 6]);
+            boost::lock_guard<std::mutex> l(lines_mutex[slice_id % lines_mutex.size()]);
             lines[slice_id].emplace_back(il);
         }
     }
@@ -446,7 +446,7 @@ void slice_facet_with_slabs(
     auto emit_slab_edge = [&lines, &lines_mutex](IntersectionLine il, size_t slab_id, bool reverse) {
         if (reverse)
             il.reverse();
-        boost::lock_guard<std::mutex> l(lines_mutex[(slab_id + 32) >> 6]);
+        boost::lock_guard<std::mutex> l(lines_mutex[(slab_id + lines_mutex.size() / 2) % lines_mutex.size()]);
         lines.between_slices[slab_id].emplace_back(il);
     };
 
@@ -472,7 +472,7 @@ void slice_facet_with_slabs(
                     };
                     // Don't flip the FacetEdgeType::Top edge, it will be flipped when chaining.
                     // if (! ProjectionFromTop) il.reverse();
-                    boost::lock_guard<std::mutex> l(lines_mutex[line_id >> 6]);
+                    boost::lock_guard<std::mutex> l(lines_mutex[line_id % lines_mutex.size()]);
                     lines.at_slice[line_id].emplace_back(il);
                 }
         } else {
@@ -582,7 +582,7 @@ void slice_facet_with_slabs(
                     if (! ProjectionFromTop)
                         il.reverse();
                     size_t line_id = it - zs.begin();
-                    boost::lock_guard<std::mutex> l(lines_mutex[line_id >> 6]);
+                    boost::lock_guard<std::mutex> l(lines_mutex[line_id % lines_mutex.size()]);
                     lines.at_slice[line_id].emplace_back(il);
                 }
             }
@@ -1617,7 +1617,7 @@ static void make_expolygons(const Polygons &loops, const float closing_radius, c
 
     /* The following line is commented out because it can generate wrong polygons,
        see for example issue #661 */
-    //ExPolygons ex_slices = offset2_ex(p_slices, +safety_offset, -safety_offset);
+    //ExPolygons ex_slices = closing(p_slices, safety_offset);
     
     #ifdef SLIC3R_TRIANGLEMESH_DEBUG
     size_t holes_count = 0;
@@ -1919,6 +1919,7 @@ void slice_mesh_slabs(
 #endif // EXPENSIVE_DEBUG_CHECKS
 
     std::vector<stl_vertex> vertices_transformed = transform_mesh_vertices_for_slicing(mesh, trafo);
+    const auto mirrored_sign = int64_t(trafo.matrix().block(0, 0, 3, 3).determinant() < 0 ? -1 : 1);
 
     std::vector<FaceOrientation> face_orientation(mesh.indices.size(), FaceOrientation::Up);
     for (const stl_triangle_vertex_indices &tri : mesh.indices) {
@@ -1929,7 +1930,7 @@ void slice_mesh_slabs(
         const Point   a = to_2d(fa).cast<coord_t>();
         const Point   b = to_2d(fb).cast<coord_t>();
         const Point   c = to_2d(fc).cast<coord_t>();
-        const int64_t d = cross2((b - a).cast<int64_t>(), (c - b).cast<int64_t>());
+        const int64_t d = cross2((b - a).cast<int64_t>(), (c - b).cast<int64_t>()) * mirrored_sign;
         FaceOrientation fo = FaceOrientation::Vertical;
         if (d > 0)
             fo = FaceOrientation::Up;
@@ -1967,7 +1968,8 @@ static void triangulate_slice(
     int                      num_original_vertices,
     // Z height of the slice.
     float                    z, 
-    bool                     triangulate)
+    bool                     triangulate, 
+    bool                     normals_down)
 {
     sort_remove_duplicates(slice_vertices);
 
@@ -1988,7 +1990,7 @@ static void triangulate_slice(
         std::vector<int> map_duplicate_vertex(int(its.vertices.size()) - num_original_vertices, -1);
         int i = 0;
         int k = 0;
-        for (; i < int(map_vertex_to_index.size()); ++ i) {
+        for (; i < int(map_vertex_to_index.size());) {
             map_vertex_to_index[k ++] = map_vertex_to_index[i];
             const Vec2f &ipos = map_vertex_to_index[i].first;
             const int    iidx = map_vertex_to_index[i].second;
@@ -2003,6 +2005,7 @@ static void triangulate_slice(
                     // map to the first vertex
                     map_duplicate_vertex[jidx - num_original_vertices] = iidx;
             }
+            i = j;
         }
         map_vertex_to_index.erase(map_vertex_to_index.begin() + k, map_vertex_to_index.end());
         for (stl_triangle_vertex_indices &f : its.indices)
@@ -2013,7 +2016,7 @@ static void triangulate_slice(
 
     if (triangulate) {
         size_t idx_vertex_new_first = its.vertices.size();
-        Pointf3s triangles = triangulate_expolygons_3d(make_expolygons_simple(lines), z, true);
+        Pointf3s triangles = triangulate_expolygons_3d(make_expolygons_simple(lines), z, normals_down);
         for (size_t i = 0; i < triangles.size(); ) {
             stl_triangle_vertex_indices facet;
             for (size_t j = 0; j < 3; ++ j) {
@@ -2049,6 +2052,33 @@ static void triangulate_slice(
     // its_remove_degenerate_faces(its);
 }
 
+void project_mesh(
+    const indexed_triangle_set       &mesh,
+    const Transform3d                &trafo,
+    Polygons                         *out_top,
+    Polygons                         *out_bottom,
+    std::function<void()>             throw_on_cancel)
+{
+    std::vector<Polygons> top, bottom;
+    std::vector<float>    zs { -1e10, 1e10 };
+    slice_mesh_slabs(mesh, zs, trafo, out_top ? &top : nullptr, out_bottom ? &bottom : nullptr, throw_on_cancel);
+    if (out_top)
+        *out_top = std::move(top.front());
+    if (out_bottom)
+        *out_bottom = std::move(bottom.back());
+}
+
+Polygons project_mesh(
+    const indexed_triangle_set       &mesh,
+    const Transform3d                &trafo,
+    std::function<void()>             throw_on_cancel)
+{
+    std::vector<Polygons> top, bottom;
+    std::vector<float>    zs { -1e10, 1e10 };
+    slice_mesh_slabs(mesh, zs, trafo, &top, &bottom, throw_on_cancel);
+    return union_(top.front(), bottom.back());
+}
+
 void cut_mesh(const indexed_triangle_set &mesh, float z, indexed_triangle_set *upper, indexed_triangle_set *lower, bool triangulate_caps)
 {
     assert(upper || lower);
@@ -2068,6 +2098,10 @@ void cut_mesh(const indexed_triangle_set &mesh, float z, indexed_triangle_set *u
         lower->vertices = mesh.vertices;
         lower->indices.reserve(mesh.indices.size());
     }
+
+#ifndef NDEBUG
+    size_t num_open_edges_old = triangulate_caps ? its_num_open_edges(mesh) : 0;
+#endif // NDEBUG
 
     // To triangulate the caps after slicing.
     IntersectionLines  upper_lines, lower_lines;
@@ -2135,13 +2169,14 @@ void cut_mesh(const indexed_triangle_set &mesh, float z, indexed_triangle_set *u
             // get vertices starting from the isolated one
             int iv = isolated_vertex;
             stl_vertex v0v1, v2v0;
-            assert(facets_edge_ids[facet_idx](iv) == line.edge_a_id ||facets_edge_ids[facet_idx](iv) == line.edge_b_id);
+            assert(facets_edge_ids[facet_idx](iv) == line.edge_a_id || facets_edge_ids[facet_idx](iv) == line.edge_b_id);
             if (facets_edge_ids[facet_idx](iv) == line.edge_a_id) {
-                v0v1 = to_3d(unscaled<float>(line.a), z);
-                v2v0 = to_3d(unscaled<float>(line.b), z);
+                // Unscale to doubles first, then to floats to reach the same accuracy as triangulate_expolygons_2d().
+                v0v1 = to_3d(unscaled<double>(line.a).cast<float>().eval(), z);
+                v2v0 = to_3d(unscaled<double>(line.b).cast<float>().eval(), z);
             } else {
-                v0v1 = to_3d(unscaled<float>(line.b), z);
-                v2v0 = to_3d(unscaled<float>(line.a), z);
+                v0v1 = to_3d(unscaled<double>(line.b).cast<float>().eval(), z);
+                v2v0 = to_3d(unscaled<double>(line.a).cast<float>().eval(), z);
             }
             const stl_vertex &v0  = vertices[iv];
             const int         iv0 = facet[iv];
@@ -2195,11 +2230,25 @@ void cut_mesh(const indexed_triangle_set &mesh, float z, indexed_triangle_set *u
         }
     }
     
-    if (upper != nullptr)
-        triangulate_slice(*upper, upper_lines, upper_slice_vertices, int(mesh.vertices.size()), z, triangulate_caps);
+    if (upper != nullptr) {
+        triangulate_slice(*upper, upper_lines, upper_slice_vertices, int(mesh.vertices.size()), z, triangulate_caps, NORMALS_DOWN);
+#ifndef NDEBUG
+        if (triangulate_caps) {
+            size_t num_open_edges_new = its_num_open_edges(*upper);
+            assert(num_open_edges_new <= num_open_edges_old);
+        }
+#endif // NDEBUG
+    }
 
-    if (lower != nullptr)
-        triangulate_slice(*lower, lower_lines, lower_slice_vertices, int(mesh.vertices.size()), z, triangulate_caps);
+    if (lower != nullptr) {
+        triangulate_slice(*lower, lower_lines, lower_slice_vertices, int(mesh.vertices.size()), z, triangulate_caps, NORMALS_UP);
+#ifndef NDEBUG
+        if (triangulate_caps) {
+            size_t num_open_edges_new = its_num_open_edges(*lower);
+            assert(num_open_edges_new <= num_open_edges_old);
+        }
+#endif // NDEBUG
+    }
 }
 
-}
+} // namespace Slic3r

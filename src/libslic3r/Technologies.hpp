@@ -43,8 +43,6 @@
 
 // Enable implementation of retract acceleration in gcode processor
 #define ENABLE_RETRACT_ACCELERATION (1 && ENABLE_2_4_0_ALPHA1)
-// Enable the fix for exporting and importing to/from 3mf file of mirrored volumes
-#define ENABLE_FIX_MIRRORED_VOLUMES_3MF_IMPORT_EXPORT (1 && ENABLE_2_4_0_ALPHA1)
 // Enable rendering seams (and other options) in preview using models
 #define ENABLE_SEAMS_USING_MODELS (1 && ENABLE_2_4_0_ALPHA1)
 // Enable save and save as commands to be enabled also when the plater is empty and allow to load empty projects
@@ -62,6 +60,30 @@
 #define ENABLE_FIX_PREVIEW_OPTIONS_Z (1 && ENABLE_SEAMS_USING_MODELS && ENABLE_2_4_0_ALPHA2)
 // Enable replacing a missing file during reload from disk command
 #define ENABLE_RELOAD_FROM_DISK_REPLACE_FILE (1 && ENABLE_2_4_0_ALPHA2)
+// Enable fixing the synchronization of seams with the horizontal slider in preview
+#define ENABLE_FIX_SEAMS_SYNCH (1 && ENABLE_2_4_0_ALPHA2)
+
+
+//====================
+// 2.4.0.alpha3 techs
+//====================
+#define ENABLE_2_4_0_ALPHA3 1
+
+// Enable fixing loading of gcode files generated with SuperSlicer in GCodeViewer
+#define ENABLE_FIX_SUPERSLICER_GCODE_IMPORT (1 && ENABLE_2_4_0_ALPHA3)
+
+
+//====================
+// 2.4.0.alpha4 techs
+//====================
+#define ENABLE_2_4_0_ALPHA4 1
+
+// Enable rendering modifiers and similar objects always as transparent
+#define ENABLE_MODIFIERS_ALWAYS_TRANSPARENT (1 && ENABLE_2_4_0_ALPHA4)
+
+// Enable the fix for the detection of the out of bed state for sinking objects
+// and detection of out of bed using the bed perimeter
+#define ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS (1 && ENABLE_2_4_0_ALPHA4)
 
 
 #endif // _prusaslicer_technologies_h_
