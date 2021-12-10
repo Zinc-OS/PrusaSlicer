@@ -4,7 +4,7 @@
 #include "Exception.hpp"
 #include "ExtrusionEntity.hpp"
 #include "EdgeGrid.hpp"
-#include "Geometry.hpp"
+#include "Geometry/ConvexHull.hpp"
 #include "GCode/PrintExtents.hpp"
 #include "GCode/WipeTower.hpp"
 #include "ShortestPath.hpp"
@@ -475,6 +475,7 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
     std::vector<GCode::LayerToPrint> layers_to_print;
     layers_to_print.reserve(object.layers().size() + object.support_layers().size());
 
+    /*
     // Calculate a minimum support layer height as a minimum over all extruders, but not smaller than 10um.
     // This is the same logic as in support generator.
     //FIXME should we use the printing extruders instead?
@@ -488,7 +489,9 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
         for (auto lh : object.print()->config().min_layer_height.values)
             support_layer_height_min = std::min(support_layer_height_min, std::max(0.01, lh));
         gap_over_supports += support_layer_height_min;
-    }
+    }*/
+
+    std::vector<std::pair<double, double>> warning_ranges;
 
     // Pair the object layers with the support layers by z.
     size_t idx_object_layer = 0;
@@ -526,29 +529,40 @@ std::vector<GCode::LayerToPrint> GCode::collect_layers_to_print(const PrintObjec
         if ((layer_to_print.object_layer && layer_to_print.object_layer->has_extrusions())
             // Allow empty support layers, as the support generator may produce no extrusions for non-empty support regions.
             || (layer_to_print.support_layer /* && layer_to_print.support_layer->has_extrusions() */)) {
-            double support_contact_z = (last_extrusion_layer && last_extrusion_layer->support_layer)
-                ? gap_over_supports
-                : 0.;
+            double top_cd = object.config().support_material_contact_distance;
+            double bottom_cd = object.config().support_material_bottom_contact_distance == 0. ? top_cd : object.config().support_material_bottom_contact_distance;
+
+            double extra_gap = (layer_to_print.support_layer ? bottom_cd : top_cd);
+
             double maximal_print_z = (last_extrusion_layer ? last_extrusion_layer->print_z() : 0.)
                 + layer_to_print.layer()->height
-                + support_contact_z;
+                + std::max(0., extra_gap);
             // Negative support_contact_z is not taken into account, it can result in false positives in cases
             // where previous layer has object extrusions too (https://github.com/prusa3d/PrusaSlicer/issues/2752)
 
-            if (has_extrusions && layer_to_print.print_z() > maximal_print_z + 2. * EPSILON) {
-                const_cast<Print*>(object.print())->active_step_add_warning(PrintStateBase::WarningLevel::CRITICAL,
-                    Slic3r::format(_(L("Empty layer detected between heights %1% and %2%. Make sure the object is printable.")),
-                                   (last_extrusion_layer ? last_extrusion_layer->print_z() : 0.),
-                                   layers_to_print.back().print_z())
-                    + "\n" + Slic3r::format(_(L("Object name: %1%")), object.model_object()->name) + "\n\n"
-                    + _(L("This is usually caused by negligibly small extrusions or by a faulty model. "
-                          "Try to repair the model or change its orientation on the bed.")));
-            }
-
-            // Remember last layer with extrusions.
-            if (has_extrusions)
-                last_extrusion_layer = &layers_to_print.back();
+            if (has_extrusions && layer_to_print.print_z() > maximal_print_z + 2. * EPSILON)
+                warning_ranges.emplace_back(std::make_pair((last_extrusion_layer ? last_extrusion_layer->print_z() : 0.), layers_to_print.back().print_z()));
         }
+        // Remember last layer with extrusions.
+        if (has_extrusions)
+            last_extrusion_layer = &layers_to_print.back();
+    }
+
+    if (! warning_ranges.empty()) {
+        std::string warning;
+        size_t i = 0;
+        for (i = 0; i < std::min(warning_ranges.size(), size_t(3)); ++i)
+            warning += Slic3r::format(_(L("Empty layer between %1% and %2%.")),
+                                      warning_ranges[i].first, warning_ranges[i].second) + "\n";
+        if (i < warning_ranges.size())
+            warning += _(L("(Some lines not shown)")) + "\n";
+        warning += "\n";
+        warning += Slic3r::format(_(L("Object name: %1%")), object.model_object()->name) + "\n\n"
+            + _(L("Make sure the object is printable. This is usually caused by negligibly small extrusions or by a faulty model. "
+                "Try to repair the model or change its orientation on the bed."));
+
+        const_cast<Print*>(object.print())->active_step_add_warning(
+            PrintStateBase::WarningLevel::CRITICAL, warning);
     }
 
     return layers_to_print;
@@ -610,7 +624,7 @@ std::vector<std::pair<coordf_t, std::vector<GCode::LayerToPrint>>> GCode::collec
 namespace DoExport {
 //    static void update_print_estimated_times_stats(const GCodeProcessor& processor, PrintStatistics& print_statistics)
 //    {
-//        const GCodeProcessor::Result& result = processor.get_result();
+//        const GCodeProcessorResult& result = processor.get_result();
 //        print_statistics.estimated_normal_print_time = get_time_dhms(result.print_statistics.modes[static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Normal)].time);
 //        print_statistics.estimated_silent_print_time = processor.is_stealth_time_estimator_enabled() ?
 //            get_time_dhms(result.print_statistics.modes[static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Stealth)].time) : "N/A";
@@ -618,7 +632,7 @@ namespace DoExport {
 
     static void update_print_estimated_stats(const GCodeProcessor& processor, const std::vector<Extruder>& extruders, PrintStatistics& print_statistics)
     {
-        const GCodeProcessor::Result& result = processor.get_result();
+        const GCodeProcessorResult& result = processor.get_result();
         print_statistics.estimated_normal_print_time = get_time_dhms(result.print_statistics.modes[static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Normal)].time);
         print_statistics.estimated_silent_print_time = processor.is_stealth_time_estimator_enabled() ?
             get_time_dhms(result.print_statistics.modes[static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Stealth)].time) : "N/A";
@@ -711,7 +725,7 @@ namespace DoExport {
     }
 } // namespace DoExport
 
-void GCode::do_export(Print* print, const char* path, GCodeProcessor::Result* result, ThumbnailsGeneratorCallback thumbnail_cb)
+void GCode::do_export(Print* print, const char* path, GCodeProcessorResult* result, ThumbnailsGeneratorCallback thumbnail_cb)
 {
     PROFILE_CLEAR();
 
@@ -732,7 +746,7 @@ void GCode::do_export(Print* print, const char* path, GCodeProcessor::Result* re
             reports += source + ": \"" + keyword + "\"\n";
         }
         print->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
-            _(L("Found reserved keyword(s) into custom g-code:")) + "\n" +
+            _(L("In the custom G-code were found reserved keywords:")) + "\n" +
             reports +
             _(L("This may cause problems in g-code visualization and printing time estimation.")));
     }
@@ -1530,30 +1544,37 @@ void GCode::process_layers(
     const size_t                             single_object_idx,
     GCodeOutputStream                       &output_stream)
 {
-    // The pipeline is fixed: Neither wipe tower nor vase mode are implemented for sequential print.
+    // The pipeline is variable: The vase mode filter is optional.
     size_t layer_to_print_idx = 0;
-    tbb::parallel_pipeline(12,
-        tbb::make_filter<void, GCode::LayerResult>(
-            tbb::filter::serial_in_order,
-            [this, &print, &tool_ordering, &layers_to_print, &layer_to_print_idx, single_object_idx](tbb::flow_control& fc) -> GCode::LayerResult {
-                if (layer_to_print_idx == layers_to_print.size()) {
-                    fc.stop();
-                    return {};
-                } else {
-                    LayerToPrint &layer = layers_to_print[layer_to_print_idx ++];
-                    print.throw_if_canceled();
-                    return this->process_layer(print, { std::move(layer) }, tool_ordering.tools_for_layer(layer.print_z()), &layer == &layers_to_print.back(), nullptr, single_object_idx);
-                }
-            }) &
-        tbb::make_filter<GCode::LayerResult, std::string>(
-            tbb::filter::serial_in_order,
-            [&cooling_buffer = *this->m_cooling_buffer.get()](GCode::LayerResult in) -> std::string {
-                return cooling_buffer.process_layer(std::move(in.gcode), in.layer_id, in.cooling_buffer_flush);
-            }) &
-        tbb::make_filter<std::string, void>(
-            tbb::filter::serial_in_order,
-            [&output_stream](std::string s) { output_stream.write(s); }
-        ));
+    const auto generator = tbb::make_filter<void, GCode::LayerResult>(tbb::filter::serial_in_order,
+        [this, &print, &tool_ordering, &layers_to_print, &layer_to_print_idx, single_object_idx](tbb::flow_control& fc) -> GCode::LayerResult {
+            if (layer_to_print_idx == layers_to_print.size()) {
+                fc.stop();
+                return {};
+            } else {
+                LayerToPrint &layer = layers_to_print[layer_to_print_idx ++];
+                print.throw_if_canceled();
+                return this->process_layer(print, { std::move(layer) }, tool_ordering.tools_for_layer(layer.print_z()), &layer == &layers_to_print.back(), nullptr, single_object_idx);
+            }
+        });
+    const auto spiral_vase = tbb::make_filter<GCode::LayerResult, GCode::LayerResult>(tbb::filter::serial_in_order,
+        [&spiral_vase = *this->m_spiral_vase.get()](GCode::LayerResult in)->GCode::LayerResult {
+            spiral_vase.enable(in.spiral_vase_enable);
+            return { spiral_vase.process_layer(std::move(in.gcode)), in.layer_id, in.spiral_vase_enable, in.cooling_buffer_flush };
+        });
+    const auto cooling = tbb::make_filter<GCode::LayerResult, std::string>(tbb::filter::serial_in_order,
+        [&cooling_buffer = *this->m_cooling_buffer.get()](GCode::LayerResult in)->std::string {
+            return cooling_buffer.process_layer(std::move(in.gcode), in.layer_id, in.cooling_buffer_flush);
+        });
+    const auto output = tbb::make_filter<std::string, void>(tbb::filter::serial_in_order,
+        [&output_stream](std::string s) { output_stream.write(s); }
+    );
+
+    // The pipeline elements are joined using const references, thus no copying is performed.
+    if (m_spiral_vase)
+        tbb::parallel_pipeline(12, generator & spiral_vase & cooling & output);
+    else
+        tbb::parallel_pipeline(12, generator & cooling & output);
 }
 
 std::string GCode::placeholder_parser_process(const std::string &name, const std::string &templ, unsigned int current_extruder_id, const DynamicConfig *config_override)
@@ -1977,13 +1998,19 @@ GCode::LayerResult GCode::process_layer(
     // Either printing all copies of all objects, or just a single copy of a single object.
     assert(single_object_instance_idx == size_t(-1) || layers.size() == 1);
 
+    // First object, support and raft layer, if available.
     const Layer         *object_layer  = nullptr;
     const SupportLayer  *support_layer = nullptr;
+    const SupportLayer  *raft_layer    = nullptr;
     for (const LayerToPrint &l : layers) {
-        if (l.object_layer != nullptr && object_layer == nullptr)
+        if (l.object_layer && ! object_layer)
             object_layer = l.object_layer;
-        if (l.support_layer != nullptr && support_layer == nullptr)
-            support_layer = l.support_layer;
+        if (l.support_layer) {
+            if (! support_layer)
+                support_layer = l.support_layer;
+            if (! raft_layer && support_layer->id() < support_layer->object()->slicing_parameters().raft_layers())
+                raft_layer = support_layer;
+        }
     }
     const Layer         &layer         = (object_layer != nullptr) ? *object_layer : *support_layer;
     GCode::LayerResult   result { {}, layer.id(), false, last_layer };
@@ -2385,7 +2412,7 @@ GCode::LayerResult GCode::process_layer(
     log_memory_info();
 
     result.gcode = std::move(gcode);
-    result.cooling_buffer_flush = object_layer || last_layer;
+    result.cooling_buffer_flush = object_layer || raft_layer || last_layer;
     return result;
 }
 
@@ -2393,6 +2420,7 @@ void GCode::apply_print_config(const PrintConfig &print_config)
 {
     m_writer.apply_print_config(print_config);
     m_config.apply(print_config);
+    m_scaled_resolution = scaled<double>(print_config.gcode_resolution.value);
 }
 
 void GCode::append_full_config(const Print &print, std::string &str)
@@ -2544,7 +2572,7 @@ std::string GCode::extrude_loop(ExtrusionLoop loop, std::string description, dou
     for (ExtrusionPaths::iterator path = paths.begin(); path != paths.end(); ++path) {
 //    description += ExtrusionLoop::role_to_string(loop.loop_role());
 //    description += ExtrusionEntity::role_to_string(path->role);
-        path->simplify(SCALED_RESOLUTION);
+        path->simplify(m_scaled_resolution);
         gcode += this->_extrude(*path, description, speed);
     }
 
@@ -2598,7 +2626,7 @@ std::string GCode::extrude_multi_path(ExtrusionMultiPath multipath, std::string 
     for (ExtrusionPath path : multipath.paths) {
 //    description += ExtrusionLoop::role_to_string(loop.loop_role());
 //    description += ExtrusionEntity::role_to_string(path->role);
-        path.simplify(SCALED_RESOLUTION);
+        path.simplify(m_scaled_resolution);
         gcode += this->_extrude(path, description, speed);
     }
     if (m_wipe.enable) {
@@ -2626,7 +2654,7 @@ std::string GCode::extrude_entity(const ExtrusionEntity &entity, std::string des
 std::string GCode::extrude_path(ExtrusionPath path, std::string description, double speed)
 {
 //    description += ExtrusionEntity::role_to_string(path.role());
-    path.simplify(SCALED_RESOLUTION);
+    path.simplify(m_scaled_resolution);
     std::string gcode = this->_extrude(path, description, speed);
     if (m_wipe.enable) {
         m_wipe.path = std::move(path.polyline);

@@ -66,13 +66,11 @@ enum FileType
     FT_TEX,
 
     FT_SL1,
-	// Workaround for OSX file picker, for some reason it always saves with the 1st extension.
- 	FT_SL1S,
 
     FT_SIZE,
 };
 
-extern wxString file_wildcards(FileType file_type, const std::string &custom_extension = std::string());
+extern wxString file_wildcards(FileType file_type, const std::string &custom_extension = std::string{});
 
 enum ConfigMenuIDs {
     ConfigMenuWizard,
@@ -134,6 +132,7 @@ private:
     wxFont		    m_bold_font;
 	wxFont			m_normal_font;
 	wxFont			m_code_font;
+    wxFont		    m_link_font;
 
     int             m_em_unit; // width of a "m"-symbol in pixels for current system font
                                // Note: for 100% Scale m_em_unit = 10 -> it's a good enough coefficient for a size setting of controls
@@ -210,12 +209,16 @@ public:
     const wxColour& get_color_hovered_btn_label() { return m_color_hovered_btn_label; }
     const wxColour& get_color_selected_btn_bg() { return m_color_selected_btn_bg; }
     void            force_colors_update();
+#ifdef _MSW_DARK_MODE
+    void            force_menu_update();
+#endif //_MSW_DARK_MODE
 #endif
 
     const wxFont&   small_font()            { return m_small_font; }
     const wxFont&   bold_font()             { return m_bold_font; }
     const wxFont&   normal_font()           { return m_normal_font; }
     const wxFont&   code_font()             { return m_code_font; }
+    const wxFont&   link_font()             { return m_link_font; }
     int             em_unit() const         { return m_em_unit; }
     bool            tabs_as_menu() const;
     wxSize          get_min_size() const;
@@ -278,6 +281,7 @@ public:
     ObjectList*          obj_list();
     ObjectLayers*        obj_layers();
     Plater*              plater();
+    const Plater*        plater() const;
     Model&      		 model();
     NotificationManager * notification_manager();
 
@@ -326,6 +330,7 @@ public:
 
     bool is_gl_version_greater_or_equal_to(unsigned int major, unsigned int minor) const { return m_opengl_mgr.get_gl_info().is_version_greater_or_equal_to(major, minor); }
     bool is_glsl_version_greater_or_equal_to(unsigned int major, unsigned int minor) const { return m_opengl_mgr.get_gl_info().is_glsl_version_greater_or_equal_to(major, minor); }
+    int  GetSingleChoiceIndex(const wxString& message, const wxString& caption, const wxArrayString& choices, int initialSelection);
 
 #ifdef __WXMSW__
     void            associate_3mf_files();
@@ -336,6 +341,8 @@ public:
 private:
     bool            on_init_inner();
 	void            init_app_config();
+    bool            check_older_app_config(Semver current_version, bool backup);
+    void            copy_older_config();
     void            window_pos_save(wxTopLevelWindow* window, const std::string &name);
     void            window_pos_restore(wxTopLevelWindow* window, const std::string &name, bool default_maximized = false);
     void            window_pos_sanitize(wxTopLevelWindow* window);
@@ -343,6 +350,11 @@ private:
 
     bool            config_wizard_startup();
 	void            check_updates(const bool verbose);
+
+    bool                    m_init_app_config_from_older { false };
+    bool                    m_datadir_redefined { false }; 
+    std::string             m_older_data_dir_path;
+    boost::optional<Semver> m_last_config_version;
 };
 
 DECLARE_APP(GUI_App)

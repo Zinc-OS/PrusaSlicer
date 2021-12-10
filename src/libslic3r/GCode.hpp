@@ -143,7 +143,7 @@ public:
 
     // throws std::runtime_exception on error,
     // throws CanceledException through print->throw_if_canceled().
-    void            do_export(Print* print, const char* path, GCodeProcessor::Result* result = nullptr, ThumbnailsGeneratorCallback thumbnail_cb = nullptr);
+    void            do_export(Print* print, const char* path, GCodeProcessorResult* result = nullptr, ThumbnailsGeneratorCallback thumbnail_cb = nullptr);
 
     // Exported for the helper classes (OozePrevention, Wipe) and for the Perl binding for unit tests.
     const Vec2d&    origin() const { return m_origin; }
@@ -345,6 +345,8 @@ private:
        methods. */
     Vec2d                               m_origin;
     FullPrintConfig                     m_config;
+    // scaled G-code resolution
+    double                              m_scaled_resolution;
     GCodeWriter                         m_writer;
     PlaceholderParser                   m_placeholder_parser;
     // For random number generator etc.

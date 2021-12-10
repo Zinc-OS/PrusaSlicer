@@ -44,7 +44,7 @@ enum class MachineLimitsUsage {
 };
 
 enum PrintHostType {
-    htPrusaLink, htOctoPrint, htDuet, htFlashAir, htAstroBox, htRepetier
+    htPrusaLink, htOctoPrint, htDuet, htFlashAir, htAstroBox, htRepetier, htMKS
 };
 
 enum AuthorizationType {
@@ -57,9 +57,15 @@ enum class FuzzySkinType {
     All,
 };
 
+#define HAS_LIGHTNING_INFILL 0
+
 enum InfillPattern : int {
     ipRectilinear, ipMonotonic, ipAlignedRectilinear, ipGrid, ipTriangles, ipStars, ipCubic, ipLine, ipConcentric, ipHoneycomb, ip3DHoneycomb,
-    ipGyroid, ipHilbertCurve, ipArchimedeanChords, ipOctagramSpiral, ipAdaptiveCubic, ipSupportCubic, ipSupportBase, ipCount,
+    ipGyroid, ipHilbertCurve, ipArchimedeanChords, ipOctagramSpiral, ipAdaptiveCubic, ipSupportCubic, ipSupportBase, 
+#if HAS_LIGHTNING_INFILL
+    ipLightning, 
+#endif // HAS_LIGHTNING_INFILL
+ipCount,
 };
 
 enum class IroningType {
@@ -223,6 +229,8 @@ public:
     void                handle_legacy(t_config_option_key &opt_key, std::string &value) const override
         { PrintConfigDef::handle_legacy(opt_key, value); }
 };
+
+void handle_legacy_sla(DynamicPrintConfig &config);
 
 class StaticPrintConfig : public StaticConfig
 {
@@ -732,6 +740,7 @@ PRINT_CONFIG_CLASS_DERIVED_DEFINE(
     ((ConfigOptionString,             printer_model))
     ((ConfigOptionString,             printer_notes))
     ((ConfigOptionFloat,              resolution))
+    ((ConfigOptionFloat,              gcode_resolution))
     ((ConfigOptionFloats,             retract_before_travel))
     ((ConfigOptionBools,              retract_layer_change))
     ((ConfigOptionFloat,              skirt_distance))
@@ -913,6 +922,8 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloat, hollowing_closing_distance))
 )
 
+enum SLAMaterialSpeed { slamsSlow, slamsFast };
+
 PRINT_CONFIG_CLASS_DEFINE(
     SLAMaterialConfig,
 
@@ -924,6 +935,10 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloat,                       exposure_time))
     ((ConfigOptionFloat,                       initial_exposure_time))
     ((ConfigOptionFloats,                      material_correction))
+    ((ConfigOptionFloat,                       material_correction_x))
+    ((ConfigOptionFloat,                       material_correction_y))
+    ((ConfigOptionFloat,                       material_correction_z))
+    ((ConfigOptionEnum<SLAMaterialSpeed>,      material_print_speed))
 )
 
 PRINT_CONFIG_CLASS_DEFINE(
@@ -940,6 +955,9 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionBool,                       display_mirror_x))
     ((ConfigOptionBool,                       display_mirror_y))
     ((ConfigOptionFloats,                     relative_correction))
+    ((ConfigOptionFloat,                      relative_correction_x))
+    ((ConfigOptionFloat,                      relative_correction_y))
+    ((ConfigOptionFloat,                      relative_correction_z))
     ((ConfigOptionFloat,                      absolute_correction))
     ((ConfigOptionFloat,                      elefant_foot_compensation))
     ((ConfigOptionFloat,                      elefant_foot_min_width))

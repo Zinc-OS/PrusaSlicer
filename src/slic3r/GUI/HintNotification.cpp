@@ -294,6 +294,10 @@ void HintDatabase::uninit()
 		write_used_binary(m_used_ids);
 	}
 	m_initialized = false;
+	m_loaded_hints.clear();
+	m_sorted_hints = false;
+	m_used_ids.clear();
+	 m_used_ids_loaded = false;
 }
 void HintDatabase::init()
 {
@@ -336,7 +340,8 @@ void HintDatabase::load_hints_from_file(const boost::filesystem::path& path)
 			size_t      weight = 1;
 			bool		was_displayed = is_used(id_string);
 			//unescape text1
-			unescape_string_cstyle(_utf8(dict["text"]), fulltext);
+			unescape_string_cstyle(dict["text"], fulltext);
+			fulltext = _utf8(fulltext);
 			// replace <b> and </b> for imgui markers
 			std::string marker_s(1, ImGui::ColorMarkerStart);
 			std::string marker_e(1, ImGui::ColorMarkerEnd);
@@ -413,9 +418,9 @@ void HintDatabase::load_hints_from_file(const boost::filesystem::path& path)
 				// open preferences
 				} else if(dict["hypertext_type"] == "preferences") {
 					int			page = static_cast<Preset::Type>(std::atoi(dict["hypertext_preferences_page"].c_str()));
-					HintData	hint_data{ id_string, text1, weight, was_displayed, hypertext_text, follow_text, disabled_tags, enabled_tags, false, documentation_link, [page]() { wxGetApp().open_preferences(page); } };
+					std::string	item = dict["hypertext_preferences_item"];
+					HintData	hint_data{ id_string, text1, weight, was_displayed, hypertext_text, follow_text, disabled_tags, enabled_tags, false, documentation_link, [page, item]() { wxGetApp().open_preferences(page, item); } };
 					m_loaded_hints.emplace_back(hint_data);
-
 				} else if (dict["hypertext_type"] == "plater") {
 					std::string	item = dict["hypertext_plater_item"];
 					HintData	hint_data{ id_string, text1, weight, was_displayed, hypertext_text, follow_text, disabled_tags, enabled_tags, true, documentation_link, [item]() { wxGetApp().plater()->canvas3D()->highlight_toolbar_item(item); } };

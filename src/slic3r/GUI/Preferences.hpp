@@ -6,6 +6,7 @@
 
 #include <wx/dialog.h>
 #include <wx/timer.h>
+#include <vector>
 #include <map>
 
 class wxColourPickerCtrl;
@@ -29,6 +30,9 @@ class PreferencesDialog : public DPIDialog
 	std::shared_ptr<ConfigOptionsGroup>	m_optgroup_general;
 	std::shared_ptr<ConfigOptionsGroup>	m_optgroup_camera;
 	std::shared_ptr<ConfigOptionsGroup>	m_optgroup_gui;
+#ifdef _WIN32
+	std::shared_ptr<ConfigOptionsGroup>	m_optgroup_dark_mode;
+#endif //_WIN32
 #if ENABLE_ENVIRONMENT_MAP
 	std::shared_ptr<ConfigOptionsGroup>	m_optgroup_render;
 #endif // ENABLE_ENVIRONMENT_MAP
@@ -58,6 +62,7 @@ protected:
     void create_settings_mode_widget();
     void create_settings_text_color_widget();
 	void init_highlighter(const t_config_option_key& opt_key);
+	std::vector<ConfigOptionsGroup*> optgroups();
 
 	struct PreferencesHighlighter
 	{

@@ -99,20 +99,11 @@ protected:
     GLPaintContour                      m_paint_contour;
 };
 
-class GLGizmoTransparentRender 
-{
-public:
-    // Following function renders the triangles and cursor. Having this separated
-    // from usual on_render method allows to render them before transparent
-    // objects, so they can be seen inside them. The usual on_render is called
-    // after all volumes (including transparent ones) are rendered.
-    virtual void render_painter_gizmo() const = 0;
-};
 
 // Following class is a base class for a gizmo with ability to paint on mesh
 // using circular blush (such as FDM supports gizmo and seam painting gizmo).
 // The purpose is not to duplicate code related to mesh painting.
-class GLGizmoPainterBase : public GLGizmoTransparentRender, public GLGizmoBase
+class GLGizmoPainterBase : public GLGizmoBase
 {
 private:
     ObjectID m_old_mo_id;
@@ -124,6 +115,16 @@ public:
     ~GLGizmoPainterBase() override = default;
     virtual void set_painter_gizmo_data(const Selection& selection);
     virtual bool gizmo_event(SLAGizmoEventType action, const Vec2d& mouse_position, bool shift_down, bool alt_down, bool control_down);
+
+    // Following function renders the triangles and cursor. Having this separated
+    // from usual on_render method allows to render them before transparent
+    // objects, so they can be seen inside them. The usual on_render is called
+    // after all volumes (including transparent ones) are rendered.
+    virtual void render_painter_gizmo() const = 0;
+
+    virtual const float get_cursor_radius_min() const { return CursorRadiusMin; }
+    virtual const float get_cursor_radius_max() const { return CursorRadiusMax; }
+    virtual const float get_cursor_radius_step() const { return CursorRadiusStep; }
 
 protected:
     virtual void render_triangles(const Selection& selection) const;
@@ -153,6 +154,13 @@ protected:
         BRUSH,
         BUCKET_FILL,
         SMART_FILL
+    };
+
+    struct ProjectedMousePosition
+    {
+        Vec3f  mesh_hit;
+        int    mesh_idx;
+        size_t facet_idx;
     };
 
     bool     m_triangle_splitting_enabled = true;
@@ -187,6 +195,8 @@ protected:
     TriangleSelector::ClippingPlane get_clipping_plane_in_volume_coordinates(const Transform3d &trafo) const;
 
 private:
+    std::vector<std::vector<ProjectedMousePosition>> get_projected_mouse_positions(const Vec2d &mouse_position, double resolution, const std::vector<Transform3d> &trafo_matrices) const;
+
     bool is_mesh_point_clipped(const Vec3d& point, const Transform3d& trafo) const;
     void update_raycast_cache(const Vec2d& mouse_position,
                               const Camera& camera,
@@ -229,9 +239,6 @@ protected:
     bool wants_enter_leave_snapshots() const override { return true; }
 
     virtual wxString handle_snapshot_action_name(bool shift_down, Button button_down) const = 0;
-
-    virtual std::string get_gizmo_entering_text() const = 0;
-    virtual std::string get_gizmo_leaving_text() const  = 0;
 
     friend class ::Slic3r::GUI::GLGizmoMmuSegmentation;
 };

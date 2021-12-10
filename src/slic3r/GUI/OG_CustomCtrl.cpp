@@ -28,17 +28,6 @@ static wxSize get_bitmap_size(const wxBitmap& bmp)
 #endif
 }
 
-static wxString get_url(const wxString& path_end, bool get_default = false) 
-{
-    if (path_end.IsEmpty())
-        return wxEmptyString;
-
-    wxString language = wxGetApp().app_config->get("translation_language");
-    wxString lang_marker = language.IsEmpty() ? "en" : language.BeforeFirst('_');
-
-    return wxString("https://help.prusa3d.com/") + lang_marker + "/article/" + path_end;
-}
-
 OG_CustomCtrl::OG_CustomCtrl(   wxWindow*            parent,
                                 OptionsGroup*        og,
                                 const wxPoint&       pos /* = wxDefaultPosition*/,
@@ -90,7 +79,6 @@ void OG_CustomCtrl::init_ctrl_lines()
 
         // if we have a single option with no label, no sidetext just add it directly to sizer
         if (option_set.size() == 1 && opt_group->label_width == 0 && option_set.front().opt.full_width &&
-            option_set.front().opt.label.empty() &&
             option_set.front().opt.sidetext.size() == 0 && option_set.front().side_widget == nullptr &&
             line.get_extra_widgets().size() == 0)
         {
@@ -168,7 +156,6 @@ wxPoint OG_CustomCtrl::get_pos(const Line& line, Field* field_in/* = nullptr*/)
             // If we have a single option with no sidetext
             const std::vector<Option>& option_set = line.get_options();
             if (option_set.size() == 1 && option_set.front().opt.sidetext.size() == 0 &&
-                option_set.front().opt.label.empty() &&
                 option_set.front().side_widget == nullptr && line.get_extra_widgets().size() == 0)
             {
                 h_pos += 3 * blinking_button_width;
@@ -178,13 +165,14 @@ wxPoint OG_CustomCtrl::get_pos(const Line& line, Field* field_in/* = nullptr*/)
                 break;
             }
 
+            bool is_multioption_line = option_set.size() > 1;
             for (auto opt : option_set) {
                 Field* field = opt_group->get_field(opt.opt_id);
                 correct_line_height(ctrl_line.height, field->getWindow());
 
                 ConfigOptionDef option = opt.opt;
                 // add label if any
-                if (!option.label.empty()) {
+                if (is_multioption_line && !option.label.empty()) {
                     //!            To correct translation by context have to use wxGETTEXT_IN_CONTEXT macro from wxWidget 3.1.1
                     label = (option.label == L_CONTEXT("Top", "Layers") || option.label == L_CONTEXT("Bottom", "Layers")) ?
                         _CTX(option.label, "Layers") : _(option.label);
@@ -264,7 +252,7 @@ void OG_CustomCtrl::OnMotion(wxMouseEvent& event)
         line.is_focused = is_point_in_rect(pos, line.rect_label);
         if (line.is_focused) {
             if (!suppress_hyperlinks && !line.og_line.label_path.empty())
-                tooltip = get_url(line.og_line.label_path) +"\n\n";
+                tooltip = OptionsGroup::get_url(line.og_line.label_path) +"\n\n";
             tooltip += line.og_line.label_tooltip;
             break;
         }
@@ -577,7 +565,7 @@ void OG_CustomCtrl::CtrlLine::render(wxDC& dc, wxCoord v_pos)
     bool is_url_string = false;
     if (ctrl->opt_group->label_width != 0 && !label.IsEmpty()) {
         const wxColour* text_clr = (option_set.size() == 1 && field ? field->label_color() : og_line.full_Label_color);
-        is_url_string = !suppress_hyperlinks && !og_line.label_path.IsEmpty();
+        is_url_string = !suppress_hyperlinks && !og_line.label_path.empty();
         h_pos = draw_text(dc, wxPoint(h_pos, v_pos), label + ":", text_clr, ctrl->opt_group->label_width * ctrl->m_em_unit, is_url_string);
     }
 
@@ -592,7 +580,6 @@ void OG_CustomCtrl::CtrlLine::render(wxDC& dc, wxCoord v_pos)
 
     // If we have a single option with no sidetext just add it directly to the grid sizer
     if (option_set.size() == 1 && option_set.front().opt.sidetext.size() == 0 &&
-        option_set.front().opt.label.empty() &&
         option_set.front().side_widget == nullptr && og_line.get_extra_widgets().size() == 0)
     {
         if (field && field->undo_to_sys_bitmap())
@@ -606,11 +593,12 @@ void OG_CustomCtrl::CtrlLine::render(wxDC& dc, wxCoord v_pos)
     }
 
     size_t bmp_rect_id = 0;
+    bool is_multioption_line = option_set.size() > 1;
     for (const Option& opt : option_set) {
         field = ctrl->opt_group->get_field(opt.opt_id);
         ConfigOptionDef option = opt.opt;
         // add label if any
-        if (!option.label.empty()) {
+        if (is_multioption_line && !option.label.empty()) {
             //!            To correct translation by context have to use wxGETTEXT_IN_CONTEXT macro from wxWidget 3.1.1
             label = (option.label == L_CONTEXT("Top", "Layers") || option.label == L_CONTEXT("Bottom", "Layers")) ?
                     _CTX(option.label, "Layers") : _(option.label);
@@ -619,7 +607,7 @@ void OG_CustomCtrl::CtrlLine::render(wxDC& dc, wxCoord v_pos)
             if (is_url_string)
                 is_url_string = false;
             else if(opt == option_set.front())
-                is_url_string = !suppress_hyperlinks && !og_line.label_path.IsEmpty();
+                is_url_string = !suppress_hyperlinks && !og_line.label_path.empty();
             h_pos = draw_text(dc, wxPoint(h_pos, v_pos), label, field ? field->label_color() : nullptr, ctrl->opt_group->sublabel_width * ctrl->m_em_unit, is_url_string);
         }
 
@@ -766,71 +754,10 @@ wxCoord OG_CustomCtrl::CtrlLine::draw_act_bmps(wxDC& dc, wxPoint pos, const wxBi
 
 bool OG_CustomCtrl::CtrlLine::launch_browser() const
 {
-    if (!is_focused || og_line.label_path.IsEmpty())
+    if (!is_focused || og_line.label_path.empty())
         return false;
 
-    bool launch = true;
-
-    if (get_app_config()->get("suppress_hyperlinks").empty()) {
-        RememberChoiceDialog dialog(nullptr, _L("Should we open this hyperlink in your default browser?"), _L("PrusaSlicer: Open hyperlink"));
-        int answer = dialog.ShowModal();
-        launch = answer == wxID_YES;
-
-        get_app_config()->set("suppress_hyperlinks", dialog.remember_choice() ? (answer == wxID_NO ? "1" : "0") : "");
-    }
-    if (launch)
-        launch = get_app_config()->get("suppress_hyperlinks") != "1";
-
-    return  launch && wxLaunchDefaultBrowser(get_url(og_line.label_path));
-}
-
-
-RememberChoiceDialog::RememberChoiceDialog(wxWindow* parent, const wxString& msg_text, const wxString& caption)
-    : wxDialog(parent, wxID_ANY, caption, wxDefaultPosition, wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxICON_INFORMATION)
-{
-    this->SetEscapeId(wxID_CLOSE);
-
-    wxBoxSizer* topSizer = new wxBoxSizer(wxVERTICAL);
-
-    m_remember_choice = new wxCheckBox(this, wxID_ANY, _L("Remember my choice"));
-    m_remember_choice->SetValue(false);
-    m_remember_choice->Bind(wxEVT_CHECKBOX, [this](wxCommandEvent& evt)
-        {
-            if (!evt.IsChecked())
-                return;
-            wxString preferences_item = _L("Suppress to open hyperlink in browser");
-            wxString msg =
-                _L("PrusaSlicer will remember your choice.") + "\n\n" +
-                _L("You will not be asked about it again on label hovering.") + "\n\n" +
-                format_wxstr(_L("Visit \"Preferences\" and check \"%1%\"\nto changes your choice."), preferences_item);
-
-            //wxMessageDialog dialog(nullptr, msg, _L("PrusaSlicer: Don't ask me again"), wxOK | wxCANCEL | wxICON_INFORMATION);
-            MessageDialog dialog(nullptr, msg, _L("PrusaSlicer: Don't ask me again"), wxOK | wxCANCEL | wxICON_INFORMATION);
-            if (dialog.ShowModal() == wxID_CANCEL)
-                m_remember_choice->SetValue(false);
-        });
-
-
-    // Add dialog's buttons
-    wxStdDialogButtonSizer* btns = this->CreateStdDialogButtonSizer(wxYES | wxNO);
-    wxButton* btnYES = static_cast<wxButton*>(this->FindWindowById(wxID_YES, this));
-    wxButton* btnNO = static_cast<wxButton*>(this->FindWindowById(wxID_NO, this));
-    btnYES->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { this->EndModal(wxID_YES); });
-    btnNO->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { this->EndModal(wxID_NO); });
-
-    topSizer->Add(new wxStaticText(this, wxID_ANY, msg_text), 0, wxEXPAND | wxALL, 10);
-    topSizer->Add(m_remember_choice, 0, wxEXPAND | wxALL, 10);
-    topSizer->Add(btns, 0, wxEXPAND | wxALL, 10);
-
-#ifdef _WIN32
-    wxGetApp().UpdateDlgDarkUI(this);
-#else
-    this->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
-#endif
-    this->SetSizer(topSizer);
-    topSizer->SetSizeHints(this);
-
-    this->CenterOnScreen();
+    return OptionsGroup::launch_browser(og_line.label_path);
 }
 
 } // GUI

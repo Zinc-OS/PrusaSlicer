@@ -23,6 +23,8 @@ add_library(libslic3r STATIC
     BridgeDetector.hpp
     Brim.cpp
     Brim.hpp
+    BuildVolume.cpp
+    BuildVolume.hpp
     clipper.cpp
     clipper.hpp
     ClipperUtils.cpp
@@ -65,6 +67,16 @@ add_library(libslic3r STATIC
     Fill/FillPlanePath.hpp
     Fill/FillLine.cpp
     Fill/FillLine.hpp
+    Fill/FillLightning.cpp
+    Fill/FillLightning.hpp
+    Fill/Lightning/DistanceField.cpp
+    Fill/Lightning/DistanceField.hpp
+    Fill/Lightning/Generator.cpp
+    Fill/Lightning/Generator.hpp
+    Fill/Lightning/Layer.cpp
+    Fill/Lightning/Layer.hpp
+    Fill/Lightning/TreeNode.cpp
+    Fill/Lightning/TreeNode.hpp
     Fill/FillRectilinear.cpp
     Fill/FillRectilinear.hpp
     Flow.cpp
@@ -116,6 +128,8 @@ add_library(libslic3r STATIC
     Geometry.hpp
     Geometry/Circle.cpp
     Geometry/Circle.hpp
+    Geometry/ConvexHull.cpp
+    Geometry/ConvexHull.hpp
     Geometry/MedialAxis.cpp
     Geometry/MedialAxis.hpp
     Geometry/Voronoi.hpp
@@ -232,9 +246,6 @@ add_library(libslic3r STATIC
     MinAreaBoundingBox.cpp
     miniz_extension.hpp
     miniz_extension.cpp
-    SimplifyMesh.hpp
-    SimplifyMeshImpl.hpp
-    SimplifyMesh.cpp
     MarchingSquares.hpp
     Execution/Execution.hpp
     Execution/ExecutionSeq.hpp

@@ -112,7 +112,7 @@ enum class NotificationType
 	// information about netfabb is finished repairing model (blocking proccess)
 	NetfabbFinished,
 	// Short meesage to fill space between start and finish of export
-	ExportOngoing
+	ExportOngoing,
 };
 
 class NotificationManager
@@ -150,7 +150,7 @@ public:
 	// Push a NotificationType::CustomNotification with NotificationLevel::RegularNotificationLevel and 10s fade out interval.
 	void push_notification(const std::string& text, int timestamp = 0);
 	// Push a NotificationType::CustomNotification with provided notification level and 10s for RegularNotificationLevel.
-	// ErrorNotificationLevel and ImportantNotificationLevel are never faded out.
+	// ErrorNotificationLevel are never faded out.
     void push_notification(NotificationType type, NotificationLevel level, const std::string& text, const std::string& hypertext = "",
                            std::function<bool(wxEvtHandler*)> callback = std::function<bool(wxEvtHandler*)>(), int timestamp = 0);
 	// Pushes basic_notification with delay. See push_delayed_notification_data.
@@ -438,9 +438,7 @@ private:
 		ProgressBarNotification(const NotificationData& n, NotificationIDProvider& id_provider, wxEvtHandler* evt_handler) : PopNotification(n, id_provider, evt_handler) { }
 		virtual void set_percentage(float percent) { m_percentage = percent; }
 	protected:
-		virtual void init() override;
-		virtual void count_lines() override;
-		
+		virtual void init() override;		
 		virtual void	render_text(ImGuiWrapper& imgui,
 									const float win_size_x, const float win_size_y,
 									const float win_pos_x, const float win_pos_y) override;
@@ -548,13 +546,6 @@ private:
 		void                set_export_possible(bool b) { m_export_possible = b; }
 	protected:
 		void        init() override;
-		void        count_lines() override 
-		{
-			if (m_sp_state == SlicingProgressState::SP_PROGRESS)
-				ProgressBarNotification::count_lines();
-			else
-				PopNotification::count_lines();
-		}
 		void	    render_text(ImGuiWrapper& imgui, const float win_size_x, const float win_size_y, const float win_pos_x, const float win_pos_y) override;
 		void		render_bar(ImGuiWrapper& imgui,
 								const float win_size_x, const float win_size_y,
@@ -674,7 +665,7 @@ private:
 			PopNotification::close(); 
 		}
 	protected:
-		void render_left_sign(ImGuiWrapper& imgui) override;
+		//void render_left_sign(ImGuiWrapper& imgui) override;
 		std::vector<std::pair<InfoItemType, size_t>> m_types_and_counts;
 	};
 
@@ -706,6 +697,7 @@ private:
 	// Otherwise another delay interval waiting. Timestamp is 0. 
 	// Note that notification object is constructed when being added to the waiting list, but there are no updates called on it and its timer is reset at regular push.
 	// Also note that no control of same notification is done during push_delayed_notification_data but if waiting notif fails to push, it continues waiting.
+	// If delay_interval is 0, notification is pushed only after initial_delay no matter the result. 
 	void push_delayed_notification_data(std::unique_ptr<NotificationManager::PopNotification> notification, std::function<bool(void)> condition_callback, int64_t initial_delay, int64_t delay_interval);
 	//finds older notification of same type and moves it to the end of queue. returns true if found
 	bool activate_existing(const NotificationManager::PopNotification* notification);
@@ -719,7 +711,7 @@ private:
 		
 		case NotificationLevel::ErrorNotificationLevel: 			return 0;
 		case NotificationLevel::WarningNotificationLevel:			return 0;
-		case NotificationLevel::ImportantNotificationLevel:			return 0;
+		case NotificationLevel::ImportantNotificationLevel:			return 20;
 		case NotificationLevel::ProgressBarNotificationLevel:		return 2;
 		case NotificationLevel::PrintInfoShortNotificationLevel:	return 5;
 		case NotificationLevel::RegularNotificationLevel: 			return 10;
@@ -755,7 +747,37 @@ private:
         NotificationType::SimplifySuggestion
 	};
 	//prepared (basic) notifications
-	static const NotificationData basic_notifications[];
+	// non-static so its not loaded too early. If static, the translations wont load correctly.
+	const std::vector<NotificationData> basic_notifications = {
+	{NotificationType::Mouse3dDisconnected, NotificationLevel::RegularNotificationLevel, 10,  _u8L("3D Mouse disconnected.") },
+	{NotificationType::PresetUpdateAvailable, NotificationLevel::ImportantNotificationLevel, 20,  _u8L("Configuration update is available."),  _u8L("See more."),
+		[](wxEvtHandler* evnthndlr) {
+			if (evnthndlr != nullptr)
+				wxPostEvent(evnthndlr, PresetUpdateAvailableClickedEvent(EVT_PRESET_UPDATE_AVAILABLE_CLICKED));
+			return true;
+		}
+	},
+	{NotificationType::EmptyColorChangeCode, NotificationLevel::PrintInfoNotificationLevel, 10,
+		_u8L("You have just added a G-code for color change, but its value is empty.\n"
+			 "To export the G-code correctly, check the \"Color Change G-code\" in \"Printer Settings > Custom G-code\"") },
+	{NotificationType::EmptyAutoColorChange, NotificationLevel::PrintInfoNotificationLevel, 10,
+		_u8L("No color change event was added to the print. The print does not look like a sign.") },
+	{NotificationType::DesktopIntegrationSuccess, NotificationLevel::RegularNotificationLevel, 10,
+		_u8L("Desktop integration was successful.") },
+	{NotificationType::DesktopIntegrationFail, NotificationLevel::WarningNotificationLevel, 10,
+		_u8L("Desktop integration failed.") },
+	{NotificationType::UndoDesktopIntegrationSuccess, NotificationLevel::RegularNotificationLevel, 10,
+		_u8L("Undo desktop integration was successful.") },
+	{NotificationType::UndoDesktopIntegrationFail, NotificationLevel::WarningNotificationLevel, 10,
+		_u8L("Undo desktop integration failed.") },
+	{NotificationType::ExportOngoing, NotificationLevel::RegularNotificationLevel, 0, _u8L("Exporting.") },
+			//{NotificationType::NewAppAvailable, NotificationLevel::ImportantNotificationLevel, 20,  _u8L("New version is available."),  _u8L("See Releases page."), [](wxEvtHandler* evnthndlr) {
+			//	wxGetApp().open_browser_with_warning_dialog("https://github.com/prusa3d/PrusaSlicer/releases"); return true; }},
+			//{NotificationType::NewAppAvailable, NotificationLevel::ImportantNotificationLevel, 20,  _u8L("New vesion of PrusaSlicer is available.",  _u8L("Download page.") },
+			//{NotificationType::LoadingFailed, NotificationLevel::RegularNotificationLevel, 20,  _u8L("Loading of model has Failed") },
+			//{NotificationType::DeviceEjected, NotificationLevel::RegularNotificationLevel, 10,  _u8L("Removable device has been safely ejected")} // if we want changeble text (like here name of device), we need to do it as CustomNotification
+	};
+	
 };
 
 }//namespace GUI

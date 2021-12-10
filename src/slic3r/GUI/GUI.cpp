@@ -204,7 +204,7 @@ void change_opt_value(DynamicPrintConfig& config, const t_config_option_key& opt
 	}
 	catch (const std::exception &e)
 	{
-		wxLogError(format_wxstr(_L("Internal error when changing value for %1%: %2%"), opt_key, e.what()));
+		wxLogError(format_wxstr("Internal error when changing value for %1%: %2%", opt_key, e.what()));
 	}
 }
 
@@ -352,7 +352,7 @@ void show_substitutions_info(const PresetsConfigSubstitutions& presets_config_su
 		add_config_substitutions(substitution.substitutions, changes);
 	}
 
-	InfoDialog msg(nullptr, _L("Configuration bundle was loaded, however some configuration values were not recognized."), substitution_message(changes));
+	InfoDialog msg(nullptr, _L("Configuration bundle was loaded, however some configuration values were not recognized."), substitution_message(changes), true);
 	msg.ShowModal();
 }
 
@@ -363,7 +363,7 @@ void show_substitutions_info(const ConfigSubstitutions& config_substitutions, co
 
 	InfoDialog msg(nullptr, 
 		format_wxstr(_L("Configuration file \"%1%\" was loaded, however some configuration values were not recognized."), from_u8(filename)), 
-		substitution_message(changes));
+		substitution_message(changes), true);
 	msg.ShowModal();
 }
 
